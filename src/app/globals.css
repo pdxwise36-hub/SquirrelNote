@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-acorn-50 text-acorn-900 antialiased;
+}
+
+/* Simple readable prose for note content */
+.note-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

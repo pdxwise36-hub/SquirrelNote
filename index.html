@@ -10,8 +10,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="SquirrelNote" />
 <style>
-  html,body{margin:0;height:100%;background:#211a12;color:#f0e6d3;
+  html,body{margin:0;padding:0;height:100%;width:100%;overflow:hidden;background:#211a12;color:#f0e6d3;
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  /* The app renders inside this frame. The frame is locked to the visible
+     screen, so the app can never be wider than your phone — no sideways scroll,
+     regardless of any viewport quirks. */
+  #app-frame{position:fixed;inset:0;width:100%;height:100%;border:0;display:none;background:#211a12}
   #ld{position:fixed;inset:0;display:flex;flex-direction:column;gap:.9rem;align-items:center;justify-content:center;text-align:center;padding:1.5rem}
   #ld .nut{font-size:3rem;animation:bob 2.4s ease-in-out infinite}
   #ld .msg{font-size:1.05rem;opacity:.85}
@@ -22,6 +26,7 @@
 </style>
 </head>
 <body>
+<iframe id="app-frame" title="SquirrelNote"></iframe>
 <div id="ld">
   <div class="nut">🐿️</div>
   <div class="msg">Loading SquirrelNote…</div>
@@ -38,31 +43,35 @@
     "https://cdn.statically.io/gh/pdxwise36-hub/squirrelnote/" + REF + "/squirrelnote.html"
   ];
   var sub = document.getElementById("sub");
+  var frame = document.getElementById("app-frame");
 
+  // Render into a same-origin srcdoc iframe. Because the iframe element is sized
+  // to the visible screen (position:fixed; inset:0), the app inside lays out at
+  // the phone's real width — it does NOT rely on the viewport meta, so the
+  // document.write viewport quirk can't reintroduce horizontal scrolling.
+  // srcdoc keeps the same origin, so the app's notes stay in this site's storage.
   function render(html) {
-    document.open();
-    document.write(html);
-    document.close();
+    frame.srcdoc = html;
+    frame.style.display = "block";
+    var ld = document.getElementById("ld");
+    if (ld) ld.style.display = "none";
   }
 
-  function fromCache() {
-    try { return localStorage.getItem(CACHE_KEY); } catch (e) { return null; }
-  }
-  function toCache(html) {
-    try { localStorage.setItem(CACHE_KEY, html); } catch (e) {}
+  function fromCache() { try { return localStorage.getItem(CACHE_KEY); } catch (e) { return null; } }
+  function toCache(html) { try { localStorage.setItem(CACHE_KEY, html); } catch (e) {} }
+
+  function fail() {
+    var cached = fromCache();
+    if (cached) { render(cached); return; }
+    sub.textContent = "Couldn't reach the app files. Check your connection.";
+    var b = document.createElement("button");
+    b.textContent = "Try again";
+    b.onclick = function () { location.reload(); };
+    document.getElementById("ld").appendChild(b);
   }
 
   function tryFetch(i) {
-    if (i >= SOURCES.length) {
-      var cached = fromCache();
-      if (cached) { render(cached); return; }
-      sub.textContent = "Couldn't reach the app files. Check your connection.";
-      var b = document.createElement("button");
-      b.textContent = "Try again";
-      b.onclick = function () { location.reload(); };
-      document.getElementById("ld").appendChild(b);
-      return;
-    }
+    if (i >= SOURCES.length) { fail(); return; }
     fetch(SOURCES[i], { cache: "no-store" })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (html) {
@@ -73,8 +82,7 @@
       .catch(function () { tryFetch(i + 1); });
   }
 
-  // Network-first (so updates always reach you), with the cached copy as an
-  // instant offline fallback if every source fails.
+  // Network-first (so updates always reach you), cached copy as offline fallback.
   tryFetch(0);
 })();
 </script>

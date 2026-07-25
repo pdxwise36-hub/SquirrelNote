@@ -3,10 +3,17 @@
 A note-taking web app connected to a couple of different apps:
 
 - **Supabase** — Postgres database that stores every note.
-- **Claude** — summarize any note and ask questions about it (via the Anthropic API).
+- **Claude** — summarize any note, ask questions about it, and turn freeform text into a checklist (via the Anthropic API).
 - **Granola** — import your meeting notes as first-class notes.
 
 Built with Next.js (App Router) + TypeScript + Tailwind, and designed to deploy to Vercel. The integration layer is deliberately modular so you can add more sources (Gmail, Notion, …) later without reworking the core.
+
+### Features
+
+- **Two note types** — rich-text notes (Markdown toolbar + live preview) and **checklists** (check off items, drag to reorder, progress bar).
+- **Text → checklist** — paste text and either split it line-by-line or let **Claude extract the action items**.
+- **Organization** — folders, tags, pinning, per-note color labels, search, and sort.
+- **Full customization** — light/dark/system theme, accent color (presets + custom), font, density, and list/grid view. Preferences persist per browser (see `src/lib/prefs.tsx`).
 
 ---
 

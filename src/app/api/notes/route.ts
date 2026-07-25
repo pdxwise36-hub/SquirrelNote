@@ -33,8 +33,12 @@ export async function POST(req: Request) {
       .insert({
         title: body.title?.trim() || "Untitled",
         content: body.content ?? "",
+        kind: body.kind ?? "note",
         source: body.source ?? "manual",
         source_id: body.source_id ?? null,
+        tags: body.tags ?? [],
+        folder: body.folder ?? null,
+        items: body.items ?? [],
         metadata: body.metadata ?? {},
       })
       .select()

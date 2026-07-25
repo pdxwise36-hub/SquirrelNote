@@ -57,50 +57,49 @@ export default function AiPanel({
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-acorn-200 bg-white p-4">
+    <div className="space-y-3 rounded-app border bg-surface p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-acorn-700">Ask Claude</h3>
+        <h3 className="text-sm font-semibold">✨ Ask Claude</h3>
         <button
           onClick={summarize}
           disabled={busy !== null}
-          className="rounded-md bg-acorn-600 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-acorn-700 disabled:opacity-50"
+          className="rounded-app bg-accent px-3 py-1.5 text-xs font-medium text-accent-contrast disabled:opacity-50"
         >
-          {busy === "summarize" ? "Summarizing…" : "Summarize note"}
+          {busy === "summarize" ? "Summarizing…" : "Summarize"}
         </button>
       </div>
 
       {note.summary && (
-        <div className="rounded-md bg-acorn-50 p-3 text-sm text-acorn-800">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-acorn-500">
+        <div className="rounded-app bg-accent-soft p-3 text-sm">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
             Summary
           </div>
           {note.summary}
         </div>
       )}
 
-      <form onSubmit={ask} className="space-y-2">
+      <form onSubmit={ask} className="flex gap-2">
         <input
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="Ask a question about this note…"
-          className="w-full rounded-md border border-acorn-200 px-3 py-2 text-sm outline-none focus:border-acorn-400"
+          className="flex-1 rounded-app border bg-bg px-3 py-2 text-sm outline-none focus:border-accent"
         />
         <button
           type="submit"
           disabled={busy !== null || !question.trim()}
-          className="rounded-md border border-acorn-300 px-3 py-1.5 text-xs font-medium text-acorn-700 transition hover:bg-acorn-100 disabled:opacity-50"
+          className="rounded-app border px-3 py-2 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
         >
-          {busy === "ask" ? "Thinking…" : "Ask"}
+          {busy === "ask" ? "…" : "Ask"}
         </button>
       </form>
 
       {answer && (
-        <div className="note-content rounded-md bg-white p-3 text-sm text-acorn-900 ring-1 ring-acorn-100">
+        <div className="note-content rounded-app bg-bg p-3 text-sm ring-1 ring-border">
           {answer}
         </div>
       )}
-
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-500">{error}</p>}
     </div>
   );
 }

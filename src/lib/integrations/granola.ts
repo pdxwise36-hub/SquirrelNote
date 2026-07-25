@@ -98,5 +98,5 @@ export function granolaDocToNote(doc: GranolaDocument): NewNote {
 /** Fetch and map Granola documents ready for insertion. */
 export async function importGranolaNotes(limit = 25): Promise<NewNote[]> {
   const docs = await fetchGranolaDocuments(limit);
-  return docs.map(granolaDocToNote).filter((n) => n.content.length > 0);
+  return docs.map(granolaDocToNote).filter((n) => (n.content ?? "").length > 0);
 }

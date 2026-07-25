@@ -50,6 +50,24 @@ export async function summarizeNote(input: {
   return firstText(message);
 }
 
+/** Turn freeform text into a flat list of checklist item strings. */
+export async function extractChecklist(text: string): Promise<string[]> {
+  const client = getClient();
+  const message = await client.messages.create({
+    model: model(),
+    max_tokens: 1024,
+    system:
+      "Extract actionable checklist items from the user's text. Return ONE item per line, " +
+      "with no numbering, bullets, or extra commentary. Keep each item short and imperative. " +
+      "If the text is already a list, just clean it up into one item per line.",
+    messages: [{ role: "user", content: text }],
+  });
+  return firstText(message)
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^[-*\d.)\]\s]+/, "").trim())
+    .filter(Boolean);
+}
+
 /** Answer a question grounded in a single note's contents. */
 export async function askAboutNote(input: {
   title: string;

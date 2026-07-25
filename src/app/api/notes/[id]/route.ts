@@ -18,6 +18,12 @@ export async function PATCH(
     if (body.content !== undefined) update.content = body.content;
     if (body.summary !== undefined) update.summary = body.summary;
     if (body.metadata !== undefined) update.metadata = body.metadata;
+    if (body.kind !== undefined) update.kind = body.kind;
+    if (body.pinned !== undefined) update.pinned = body.pinned;
+    if (body.color !== undefined) update.color = body.color;
+    if (body.tags !== undefined) update.tags = body.tags;
+    if (body.folder !== undefined) update.folder = body.folder;
+    if (body.items !== undefined) update.items = body.items;
 
     const { data, error } = await supabase
       .from("notes")

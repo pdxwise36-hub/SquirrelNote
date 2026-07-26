@@ -383,6 +383,23 @@
   .rnd-result.land { animation: rland 0.55s var(--ease-spring); color: var(--accent); text-shadow: 0 0 26px var(--accent-soft); }
   @keyframes rland { 0% { transform: scale(0.4); opacity: 0; } 55% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
+  /* photos on notes */
+  .photos { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .photo { position: relative; width: 88px; height: 88px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+  .photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+  .photo-del { position: absolute; top: 3px; right: 3px; width: 21px; height: 21px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.7rem; display: grid; place-items: center; line-height: 1; }
+  .photo-del:hover { background: rgba(0,0,0,0.8); }
+  .photo-add { width: 88px; height: 88px; border-radius: 12px; border: 2px dashed var(--border); color: var(--muted);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.15rem; font-size: 1.4rem; transition: border-color 0.15s, color 0.15s; }
+  .photo-add span { font-size: 0.7rem; font-weight: 700; }
+  .photo-add:hover { border-color: var(--accent); color: var(--accent); }
+  .card-photo { position: relative; width: 100%; border-radius: 10px; overflow: hidden; }
+  .card-photo img { width: 100%; max-height: 180px; object-fit: cover; display: block; }
+  .card-photo-n { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,0.6); color: #fff; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.45rem; border-radius: 99px; }
+  .lightbox { position: fixed; inset: 0; z-index: 80; background: rgba(0,0,0,0.92); display: grid; place-items: center; padding: 1rem; animation: fade 0.18s ease; }
+  .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  .lb-close { position: fixed; top: 1rem; right: 1rem; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.16); color: #fff; font-size: 1.1rem; }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -885,9 +902,12 @@
       body = n.content.trim() ? `<div class="card-text">${esc(n.content.trim())}</div>` : `<div class="card-text" style="opacity:.55">Empty note</div>`;
     }
     const tags = (n.tags || []).length ? `<div class="card-tags">${n.tags.slice(0, 4).map((t) => `<span class="minitag" style="background:color-mix(in srgb, ${tagColor(t)} 32%, transparent);color:color-mix(in srgb, ${tagColor(t)} 55%, var(--fg))">#${esc(t)}</span>`).join("")}</div>` : "";
+    const cphoto = (n.photos && n.photos.length)
+      ? `<div class="card-photo"><img src="${n.photos[0]}" loading="lazy" alt="" />${n.photos.length > 1 ? `<span class="card-photo-n">+${n.photos.length - 1}</span>` : ""}</div>`
+      : "";
     return `<div class="card-top"><span class="card-title">${esc(n.title) || "Untitled"}</span><span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span></div>
       <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}</div>
-      ${body}${tags}`;
+      ${cphoto}${body}${tags}`;
   }
 
   // Auto color for an untagged, uncolored note — deterministic per note id,
@@ -985,6 +1005,8 @@
         <datalist id="folderlist">${folders().map((f) => `<option value="${esc(f)}"></option>`).join("")}</datalist>
         <span class="tags-in" id="tagsIn">${tagChips}<input class="tag-add" id="tagAdd" placeholder="+ tag" /></span>
       </div>
+      <div class="photos" id="photos"></div>
+      <input type="file" id="photoInput" accept="image/*" multiple style="display:none" />
       <div id="body"></div>
     </div>`;
     $("#backBtn").onclick = () => { selectedId = null; setSelectedFlag(); renderList(); };
@@ -1003,7 +1025,64 @@
         const t = tagAdd.value.trim().replace(/^#/, "").toLowerCase();
         if (t && !(n.tags || []).includes(t)) { patch(n.id, { tags: [...(n.tags || []), t] }); renderEditor(); renderList(); renderNav(); } }
     });
+    renderPhotos(n);
+    const pin = $("#photoInput");
+    if (pin) pin.onchange = (e) => { addPhotos(n, [...e.target.files]); e.target.value = ""; };
     if (n.kind === "checklist") renderChecklist(n); else renderNoteBody(n);
+  }
+
+  // ---- photos (stored on the note as resized JPEG data URIs, on-device) ----
+  function persistSafe() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); return true; } catch (e) { return false; } }
+  // Downscale in-browser so photos fit in local storage and load fast.
+  function fileToScaledDataURL(file, maxDim, quality) {
+    maxDim = maxDim || 1400; quality = quality || 0.72;
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        let w = img.naturalWidth, h = img.naturalHeight;
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        w = Math.max(1, Math.round(w * scale)); h = Math.max(1, Math.round(h * scale));
+        const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+        cv.getContext("2d").drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        try { resolve(cv.toDataURL("image/jpeg", quality)); } catch (e) { reject(e); }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image")); };
+      img.src = url;
+    });
+  }
+  async function addPhotos(n, files) {
+    n.photos = n.photos || [];
+    let added = 0;
+    for (const f of files) {
+      if (!f || !f.type || f.type.indexOf("image/") !== 0) continue;
+      try { n.photos.push(await fileToScaledDataURL(f)); added++; } catch (e) {}
+    }
+    if (!added) return;
+    touch(n);
+    if (!persistSafe()) {
+      n.photos.splice(n.photos.length - added, added); persistSafe();
+      alert("Not enough room in this browser to store that photo. Photos are saved on your device — try fewer or smaller ones, or remove some.");
+    }
+    renderPhotos(n); renderList();
+  }
+  function renderPhotos(n) {
+    const ph = $("#photos"); if (!ph) return;
+    const list = n.photos || [];
+    ph.innerHTML = list.map((src, i) => `<div class="photo"><img src="${src}" data-viewphoto="${i}" alt="attachment" /><button class="photo-del" data-delphoto="${i}" aria-label="Remove photo">✕</button></div>`).join("")
+      + `<button class="photo-add" id="addPhoto" type="button">📷<span>Add</span></button>`;
+    $("#addPhoto").onclick = () => $("#photoInput").click();
+    ph.querySelectorAll("[data-viewphoto]").forEach((el) => el.addEventListener("click", () => openPhoto((n.photos || [])[+el.dataset.viewphoto])));
+    ph.querySelectorAll("[data-delphoto]").forEach((el) => el.addEventListener("click", () => {
+      n.photos.splice(+el.dataset.delphoto, 1); touch(n); persistSafe(); renderPhotos(n); renderList();
+    }));
+  }
+  function openPhoto(src) {
+    if (!src) return;
+    const o = document.createElement("div"); o.className = "lightbox";
+    o.innerHTML = `<img src="${src}" alt="photo" /><button class="lb-close" aria-label="Close">✕</button>`;
+    o.onclick = () => o.remove();
+    document.body.appendChild(o);
   }
 
   function updateCard(id) { refreshCard(id); }
@@ -1174,7 +1253,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [

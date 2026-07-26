@@ -349,6 +349,40 @@
   .mic-on { animation: micpulse 1s ease-in-out infinite; }
   @keyframes micpulse { 0%,100% { box-shadow: 0 0 0 0 var(--accent-soft); } 50% { box-shadow: 0 0 0 5px transparent; } }
 
+  /* level / XP (in the dark rail) */
+  .statswrap { position: relative; display: flex; flex-direction: column; gap: 0.5rem; }
+  .lvl { display: flex; flex-direction: column; gap: 0.28rem; }
+  .lvl-top { display: flex; justify-content: space-between; align-items: center; }
+  .lvl-badge { font-family: var(--round); font-weight: 800; font-size: 0.78rem; color: var(--accent-contrast);
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); padding: 0.08rem 0.5rem; border-radius: 8px; box-shadow: 0 4px 12px -6px var(--accent); }
+  .lvl-xp { font-size: 0.66rem; color: var(--rail-muted); font-variant-numeric: tabular-nums; }
+  .lvl-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,0.08); overflow: hidden; }
+  .lvl-bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.5s var(--ease-spring); }
+
+  /* level-up toast */
+  .toast { position: fixed; left: 50%; bottom: 5.5rem; transform: translateX(-50%) translateY(22px); z-index: 70;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-contrast);
+    font-family: var(--round); font-weight: 800; font-size: 0.95rem; padding: 0.6rem 1.15rem; border-radius: 14px;
+    box-shadow: var(--shadow-lg); opacity: 0; transition: opacity 0.3s, transform 0.3s var(--ease-spring); pointer-events: none; }
+  .toast.show { opacity: 1; transform: translateX(-50%); }
+
+  /* randomizer — "pick for me" */
+  .rnd-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; justify-content: center; }
+  .rnd-chip { border: 1px solid var(--border); background: var(--surface-2); border-radius: 99px; padding: 0.3rem 0.7rem;
+    font-size: 0.8rem; font-weight: 700; color: var(--muted); transition: transform 0.12s var(--ease-spring); }
+  .rnd-chip:hover { color: var(--fg); } .rnd-chip:active { transform: scale(0.94); }
+  .rnd-chip.on { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
+  .rnd-stage { position: relative; min-height: 132px; display: grid; place-items: center; border-radius: var(--radius);
+    background: radial-gradient(circle at 50% 38%, var(--accent-soft), var(--surface-2)); border: 1px solid var(--border); overflow: hidden; }
+  .rnd-stage.spinning { animation: stageshake 0.28s linear infinite; }
+  @keyframes stageshake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+  .rnd-result { font-family: var(--round); font-weight: 800; font-size: 2.4rem; line-height: 1.12; text-align: center;
+    padding: 0.4rem 1rem; color: var(--fg); word-break: break-word; }
+  .rnd-result.flip { animation: rflip 0.12s ease; }
+  @keyframes rflip { from { opacity: 0.25; transform: translateY(-28%) scale(0.9); } to { opacity: 1; transform: none; } }
+  .rnd-result.land { animation: rland 0.55s var(--ease-spring); color: var(--accent); text-shadow: 0 0 26px var(--accent-soft); }
+  @keyframes rland { 0% { transform: scale(0.4); opacity: 0; } 55% { transform: scale(1.25); } 100% { transform: scale(1); } }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -400,6 +434,7 @@
     <div class="stats" id="stats"></div>
     <nav id="nav" class="scroll"></nav>
     <div class="railfoot">
+      <button class="nav-item" id="rndBtn">🎲 Pick for me</button>
       <button class="nav-item" id="winsBtn">🏆 Weekly wins</button>
       <button class="nav-item" id="exportBtn">⇩ Export backup</button>
       <button class="nav-item" id="importBtn">⇧ Import</button>
@@ -481,13 +516,23 @@
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
 
   // ---- streaks & daily wins ----
-  let stats = { days: {} };
-  function loadStats() { try { const r = localStorage.getItem(STATS_KEY); if (r) stats = { days: {}, ...JSON.parse(r) }; } catch (e) {} }
+  let stats = { days: {}, xp: 0 };
+  const XP_PER = 12;                 // points earned per task checked off
+  const XP_PER_LEVEL = 100;          // points needed to gain a level
+  function levelFor(xp) { return Math.floor((xp || 0) / XP_PER_LEVEL) + 1; }
+  function loadStats() { try { const r = localStorage.getItem(STATS_KEY); if (r) stats = { days: {}, xp: 0, ...JSON.parse(r) }; } catch (e) {} }
   function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch (e) {} }
   function todayKey() { return new Date().toLocaleDateString("en-CA"); }
   function weekKey() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
   function periodKey(repeat) { return repeat === "weekly" ? weekKey() : todayKey(); }
-  function bumpStat() { const k = todayKey(); stats.days[k] = (stats.days[k] || 0) + 1; saveStats(); renderStreak(); }
+  function bumpStat() {
+    const k = todayKey(); stats.days[k] = (stats.days[k] || 0) + 1;
+    const before = levelFor(stats.xp);
+    stats.xp = (stats.xp || 0) + XP_PER;
+    const after = levelFor(stats.xp);
+    saveStats(); renderStreak();
+    if (after > before) { toast("⭐ Level " + after + "! Keep it rolling"); celebrate(); playChime(); }
+  }
 
   // ---- recurring checklists + templates ----
   let templates = [];
@@ -547,9 +592,23 @@
   function renderStreak() {
     const el = $("#stats"); if (!el) return;
     const s = streakCount(), t = stats.days[todayKey()] || 0;
-    if (s === 0 && t === 0) { el.className = "stat-hint"; el.textContent = "Tick something off to start a 🔥 streak"; return; }
-    el.className = "stats";
-    el.innerHTML = `<div class="stat-pill"><span class="sv">${s}</span><span class="sl">day streak 🔥</span></div><div class="stat-pill"><span class="sv">${t}</span><span class="sl">done today ✅</span></div>`;
+    const xp = stats.xp || 0, lvl = levelFor(xp), into = xp % XP_PER_LEVEL;
+    const pills = (s === 0 && t === 0)
+      ? `<div class="stat-hint">Tick something off to start a 🔥 streak</div>`
+      : `<div class="stats"><div class="stat-pill"><span class="sv">${s}</span><span class="sl">day streak 🔥</span></div><div class="stat-pill"><span class="sv">${t}</span><span class="sl">done today ✅</span></div></div>`;
+    const level = `<div class="lvl"><div class="lvl-top"><span class="lvl-badge">Lv ${lvl}</span><span class="lvl-xp">${into}/${XP_PER_LEVEL} XP</span></div><div class="lvl-bar"><span style="width:${into}%"></span></div></div>`;
+    el.className = "statswrap";
+    el.innerHTML = pills + level;
+  }
+  // brief celebratory toast (level-ups, etc.)
+  let toastT = null;
+  function toast(msg) {
+    let el = document.querySelector(".toast");
+    if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); }
+    el.textContent = msg;
+    requestAnimationFrame(() => el.classList.add("show"));
+    clearTimeout(toastT);
+    toastT = setTimeout(() => { el.classList.remove("show"); }, 2600);
   }
 
   // ---- weekly wins recap ----
@@ -589,6 +648,96 @@
     if (prefs.lastWins === wk) return;
     prefs.lastWins = wk; savePrefs();
     if (Object.values(stats.days || {}).some((v) => v > 0)) setTimeout(openWins, 700);
+  }
+
+  // ---- "Pick for me" randomizer (executive-function helper) ----
+  const RND_PRESETS = {
+    ab: "A\nB",
+    yesno: "Yes\nNo",
+    coin: "Heads 🪙\nTails 🪙",
+    dice: "1-6",
+    letters: "A-Z",
+  };
+  function secureIndex(n) {
+    try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] % n; }
+    catch (e) { return Math.floor(Math.random() * n); }
+  }
+  // Turn the box into a list of choices. A lone range like "1-10" or "A-F" expands.
+  function parseChoices(text) {
+    const raw = text.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    if (raw.length === 1) {
+      const num = raw[0].match(/^(-?\d+)\s*[-–]\s*(-?\d+)$/);
+      const alpha = raw[0].match(/^([A-Za-z])\s*[-–]\s*([A-Za-z])$/);
+      if (num) {
+        let a = +num[1], b = +num[2], out = [], step = a <= b ? 1 : -1;
+        for (let i = a; ; i += step) { out.push(String(i)); if (i === b || out.length > 500) break; }
+        return out;
+      }
+      if (alpha) {
+        let a = alpha[1].charCodeAt(0), b = alpha[2].charCodeAt(0), out = [], step = a <= b ? 1 : -1;
+        for (let i = a; ; i += step) { out.push(String.fromCharCode(i)); if (i === b) break; }
+        return out;
+      }
+    }
+    return raw;
+  }
+  let spinning = false;
+  function spin(choices, resultEl, stageEl, btn) {
+    if (spinning) return;
+    const n = choices.length;
+    const winner = choices[secureIndex(n)];
+    spinning = true; stageEl.classList.add("spinning"); btn.disabled = true; resultEl.classList.remove("land");
+    let elapsed = 0, delay = 45; const total = 1900;
+    (function tick() {
+      resultEl.textContent = choices[Math.floor(Math.random() * n)];
+      resultEl.classList.remove("flip"); void resultEl.offsetWidth; resultEl.classList.add("flip");
+      elapsed += delay;
+      if (elapsed < total) { delay *= 1.14; setTimeout(tick, delay); }
+      else {
+        resultEl.textContent = winner;
+        resultEl.classList.remove("flip"); void resultEl.offsetWidth; resultEl.classList.add("land");
+        stageEl.classList.remove("spinning"); spinning = false; btn.disabled = false;
+        playChime(); celebrate();
+      }
+    })();
+  }
+  function openRandomizer() {
+    const root = $("#modalRoot");
+    root.innerHTML = `<div class="scrim" id="rndScrim"></div>
+      <div class="qc" style="max-width:440px">
+        <h2 style="justify-content:center">🎲 Pick for me</h2>
+        <p class="fineprint" style="margin:0;text-align:center">Can't decide? Add your options (or a range like <b>1-10</b> / <b>A-F</b>) and let the acorn gods choose.</p>
+        <div class="rnd-presets" id="rndPresets">
+          <button class="rnd-chip" data-preset="ab">A / B</button>
+          <button class="rnd-chip" data-preset="yesno">Yes / No</button>
+          <button class="rnd-chip" data-preset="coin">Coin 🪙</button>
+          <button class="rnd-chip" data-preset="dice">Dice 🎲</button>
+          <button class="rnd-chip" data-preset="letters">A–Z</button>
+        </div>
+        <textarea id="rndText" placeholder="One option per line (or comma-separated)&#10;e.g. Coffee, Tea, Water"></textarea>
+        <div class="rnd-stage" id="rndStage"><span class="rnd-result" id="rndResult">🌰</span></div>
+        <div class="qc-row">
+          <span style="flex:1"></span>
+          <button class="btn-sm" id="rndCancel">Close</button>
+          <button class="btn-sm accent" id="rndGo">🎲 Pick one!</button>
+        </div>
+      </div>`;
+    const ta = $("#rndText"), result = $("#rndResult"), stage = $("#rndStage"), go = $("#rndGo");
+    if (prefs.lastChoices) ta.value = prefs.lastChoices;
+    $("#rndScrim").onclick = closeSettings;
+    $("#rndCancel").onclick = closeSettings;
+    root.querySelectorAll("[data-preset]").forEach((el) => el.addEventListener("click", () => {
+      ta.value = RND_PRESETS[el.dataset.preset] || "";
+      root.querySelectorAll(".rnd-chip").forEach((c) => c.classList.toggle("on", c === el));
+    }));
+    go.onclick = () => {
+      const choices = parseChoices(ta.value);
+      if (choices.length < 2) { result.textContent = "Add 2+ options 🙂"; ta.focus(); return; }
+      prefs.lastChoices = ta.value; savePrefs();
+      spin(choices, result, stage, go);
+    };
+    ta.addEventListener("input", () => root.querySelectorAll(".rnd-chip").forEach((c) => c.classList.remove("on")));
+    setTimeout(() => ta.focus(), 40);
   }
 
   // ---- optional completion chime (Web Audio, no asset) ----
@@ -1150,6 +1299,7 @@
   $("#newNote").onclick = () => newNote("note");
   $("#newList").onclick = () => newNote("checklist");
   $("#winsBtn").onclick = openWins;
+  $("#rndBtn").onclick = openRandomizer;
   $("#openSettings").onclick = openSettings;
   // The home-screen "Quick note" shortcut opens the site with ?capture=1; the
   // loader relays that here so we pop the capture box straight open.

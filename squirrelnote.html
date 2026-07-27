@@ -553,8 +553,20 @@
   function loadPrefs() { try { const r = localStorage.getItem(PREFS_KEY); if (r) prefs = { ...DEFAULT_PREFS, ...JSON.parse(r) }; } catch (e) {} }
   function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} }
   function loadNotes() { try { const r = localStorage.getItem(NOTES_KEY); if (r) notes = JSON.parse(r); } catch (e) {} }
-  function persist() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch (e) {} }
+  let quotaWarned = false;
+  function persist() {
+    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); quotaWarned = false; }
+    catch (e) {
+      if (!quotaWarned) {
+        quotaWarned = true;
+        alert("⚠️ This browser's storage is full, so new changes can't be saved.\n\nFree up room by deleting a few photos, then tap ⇩ Export backup to keep your notes safe. (Everything is stored on this device.)");
+      }
+    }
+  }
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
+  // Flush any pending save immediately — used when the app is backgrounded or
+  // closed so nothing typed in the last moment is lost.
+  function flushSave() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } persist(); }
 
   // ---- streaks & daily wins ----
   let stats = { days: {}, xp: 0 };
@@ -1540,6 +1552,12 @@
   // The home-screen "Quick note" shortcut opens the site with ?capture=1; the
   // loader relays that here so we pop the capture box straight open.
   window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); });
+  // Auto-save on leave: flush pending writes the moment the app is hidden,
+  // backgrounded, or closed — so nothing typed in the last second is lost.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
+  window.addEventListener("pagehide", flushSave);
+  window.addEventListener("beforeunload", flushSave);
+  window.addEventListener("blur", flushSave);
   $("#exportBtn").onclick = exportData;
   $("#importBtn").onclick = () => $("#fileInput").click();
   $("#fileInput").onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ""; };

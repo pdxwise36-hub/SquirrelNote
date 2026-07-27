@@ -400,6 +400,30 @@
   .lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
   .lb-close { position: fixed; top: 1rem; right: 1rem; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.16); color: #fff; font-size: 1.1rem; }
 
+  /* sub-steps ("break it down") */
+  .stepbtn { color: var(--muted); font-size: 0.82rem; padding: 0.1rem 0.35rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 0.2rem; flex-shrink: 0; transition: color 0.14s; }
+  .stepbtn:hover, .stepbtn.on { color: var(--accent); }
+  .stepn { font-size: 0.62rem; font-weight: 700; background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 72%, var(--fg)); border-radius: 99px; padding: 0 0.32rem; }
+  .substeps { margin: 0.05rem 0 0.35rem 2.5rem; display: flex; flex-direction: column; gap: 0.08rem; border-left: 2px solid var(--border); padding-left: 0.5rem; }
+  .subitem { display: flex; align-items: center; gap: 0.4rem; padding: 0.16rem 0.2rem; border-radius: 9px; }
+  .subitem:hover { background: var(--app-bg); }
+  .subitem .check { width: 22px; height: 22px; }
+  .subitem .check .acorn { width: 18px; height: 18px; }
+  .subitem .item-text { font-size: 0.88rem; }
+  .subitem.done .item-text { color: var(--muted); text-decoration: line-through; }
+  .addsub { display: flex; align-items: center; gap: 0.4rem; padding: 0.12rem 0.2rem; }
+  .addsub .plus { width: 18px; text-align: center; color: var(--accent); font-weight: 700; }
+  .addsub input { flex: 1; background: none; border: none; border-bottom: 1px solid var(--border); padding: 0.2rem 0; font-size: 0.85rem; }
+  .addsub input:focus { outline: none; border-color: var(--accent); }
+
+  /* reminders */
+  .remind-row { display: flex; align-items: center; gap: 0.5rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.4rem 0.7rem; box-shadow: var(--shadow-sm); }
+  .remind-ic { font-size: 1rem; }
+  .remind-in { flex: 1; background: var(--app-bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.32rem 0.5rem; font-size: 0.82rem; color: var(--fg); min-width: 0; font-family: var(--sans); }
+  .remind-in:focus { outline: none; border-color: var(--accent); }
+  .remind-clear { color: var(--muted); font-size: 0.8rem; padding: 0.2rem 0.45rem; }
+  .remind-clear:hover { color: var(--fg); }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -562,7 +586,7 @@
       if (n.kind === "checklist" && n.repeat && n.repeat !== "none") {
         const pk = periodKey(n.repeat);
         if (n.lastReset !== pk) {
-          (n.items || []).forEach((i) => (i.checked = false));
+          (n.items || []).forEach((i) => { i.checked = false; (i.sub || []).forEach((s) => (s.checked = false)); });
           n.lastReset = pk; changed = true;
         }
       }
@@ -571,12 +595,12 @@
   }
   function saveTemplate(n) {
     templates.push({ id: uid(), name: n.title || "Routine", tags: n.tags || [], color: n.color || null,
-      repeat: n.repeat || "none", items: (n.items || []).map((i) => ({ text: i.text })) });
+      repeat: n.repeat || "none", items: (n.items || []).map((i) => ({ text: i.text, sub: (i.sub || []).map((s) => ({ text: s.text })) })) });
     saveTemplates(); renderNav();
   }
   function newFromTemplate(tpl) {
     const n = { id: uid(), kind: "checklist", title: tpl.name, content: "",
-      items: (tpl.items || []).map((i) => ({ id: uid(), text: i.text, checked: false })),
+      items: (tpl.items || []).map((i) => ({ id: uid(), text: i.text, checked: false, sub: (i.sub || []).map((s) => ({ id: uid(), text: s.text, checked: false })) })),
       tags: [...(tpl.tags || [])], folder: filter.folder || null, color: tpl.color || null,
       repeat: tpl.repeat || "none", lastReset: periodKey(tpl.repeat || "none"),
       pinned: false, created: now(), updated: now() };
@@ -873,8 +897,11 @@
     }));
   }
 
+  // An item is done when it has no sub-steps and is checked, or all its
+  // sub-steps are checked. Sub-steps ("break it down") nest one level.
+  function itemDone(it) { return (it.sub && it.sub.length) ? it.sub.every((s) => s.checked) : !!it.checked; }
   function preview(n) {
-    if (n.kind === "checklist") { const done = (n.items || []).filter((i) => i.checked).length; return (n.items || []).length ? done + " of " + n.items.length + " done" : "Empty checklist"; }
+    if (n.kind === "checklist") { const done = (n.items || []).filter(itemDone).length; return (n.items || []).length ? done + " of " + n.items.length + " done" : "Empty checklist"; }
     return n.content.trim().slice(0, 100) || "Empty note";
   }
 
@@ -896,7 +923,7 @@
       const items = n.items || [];
       const shown = items.slice(0, 6);
       body = items.length
-        ? `<div class="cl">${shown.map((it) => `<div class="cl-row ${it.checked ? "done" : ""}"><span class="cbx" data-cardtoggle="${it.id}">${ACORN(it.checked)}</span><span class="t">${esc(it.text) || "…"}</span></div>`).join("")}</div>${items.length > 6 ? `<div class="more">+ ${items.length - 6} more</div>` : ""}`
+        ? `<div class="cl">${shown.map((it) => `<div class="cl-row ${itemDone(it) ? "done" : ""}"><span class="cbx" data-cardtoggle="${it.id}">${ACORN(itemDone(it))}</span><span class="t">${esc(it.text) || "…"}${(it.sub && it.sub.length) ? ` <span style="opacity:.5">(${it.sub.filter((s) => s.checked).length}/${it.sub.length})</span>` : ""}</span></div>`).join("")}</div>${items.length > 6 ? `<div class="more">+ ${items.length - 6} more</div>` : ""}`
         : `<div class="card-text" style="opacity:.6">Empty checklist</div>`;
     } else {
       body = n.content.trim() ? `<div class="card-text">${esc(n.content.trim())}</div>` : `<div class="card-text" style="opacity:.55">Empty note</div>`;
@@ -906,7 +933,7 @@
       ? `<div class="card-photo"><img src="${n.photos[0]}" loading="lazy" alt="" />${n.photos.length > 1 ? `<span class="card-photo-n">+${n.photos.length - 1}</span>` : ""}</div>`
       : "";
     return `<div class="card-top"><span class="card-title">${esc(n.title) || "Untitled"}</span><span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span></div>
-      <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}</div>
+      <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
       ${cphoto}${body}${tags}`;
   }
 
@@ -953,10 +980,12 @@
         const nid = el.dataset.id, n = notes.find((x) => x.id === nid);
         const it = (n.items || []).find((i) => i.id === cbx.dataset.cardtoggle);
         if (it) {
-          const before = n.items.filter((i) => i.checked).length;
-          it.checked = !it.checked; touch(n); saveSoon();
-          if (it.checked) bumpStat();
-          const after = n.items.filter((i) => i.checked).length;
+          const before = n.items.filter(itemDone).length;
+          const nowDone = !itemDone(it);
+          if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = nowDone));
+          it.checked = nowDone; touch(n); saveSoon();
+          if (nowDone) bumpStat();
+          const after = n.items.filter(itemDone).length;
           if (n.items.length && after === n.items.length && before < n.items.length) { playChime(); celebrate(); }
           refreshCard(nid);
           if (selectedId === nid) renderEditor();
@@ -1007,6 +1036,11 @@
       </div>
       <div class="photos" id="photos"></div>
       <input type="file" id="photoInput" accept="image/*" multiple style="display:none" />
+      <div class="remind-row">
+        <span class="remind-ic">⏰</span>
+        <input type="datetime-local" id="remindAt" class="remind-in" aria-label="Remind me at" />
+        <button class="remind-clear" id="remindClear" title="Clear reminder" aria-label="Clear reminder">✕</button>
+      </div>
       <div id="body"></div>
     </div>`;
     $("#backBtn").onclick = () => { selectedId = null; setSelectedFlag(); renderList(); };
@@ -1028,6 +1062,17 @@
     renderPhotos(n);
     const pin = $("#photoInput");
     if (pin) pin.onchange = (e) => { addPhotos(n, [...e.target.files]); e.target.value = ""; };
+    const rem = $("#remindAt");
+    if (rem) {
+      rem.value = toLocalInput(n.remindAt);
+      rem.onchange = () => {
+        const iso = fromLocalInput(rem.value);
+        n.remindAt = iso; n.remindDone = false; touch(n); saveSoon();
+        if (iso) requestReminderPerm();
+        scheduleReminders(); refreshCard(n.id);
+      };
+      $("#remindClear").onclick = () => { n.remindAt = null; n.remindDone = false; touch(n); saveSoon(); rem.value = ""; scheduleReminders(); refreshCard(n.id); };
+    }
     if (n.kind === "checklist") renderChecklist(n); else renderNoteBody(n);
   }
 
@@ -1085,6 +1130,45 @@
     document.body.appendChild(o);
   }
 
+  // ---- reminders (per note; fire while open + catch up any that passed) ----
+  let reminderTimers = [];
+  const pad2 = (x) => String(x).padStart(2, "0");
+  function toLocalInput(iso) {
+    if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return "";
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+  function fromLocalInput(val) { if (!val) return null; const d = new Date(val); return isNaN(d) ? null : d.toISOString(); }
+  function reminderPermission() { try { return (window.Notification && Notification.permission) || "unsupported"; } catch (e) { return "unsupported"; } }
+  async function requestReminderPerm() { try { if (window.Notification && Notification.permission === "default") await Notification.requestPermission(); } catch (e) {} }
+  function fireReminder(note) {
+    if (!note || note.remindDone) return;
+    note.remindDone = true; persistSafe();
+    const title = note.title || "SquirrelNote";
+    let shown = false;
+    try {
+      if (window.Notification && Notification.permission === "granted") {
+        new Notification("⏰ " + title, { body: note.kind === "checklist" ? preview(note) : (note.content || "").slice(0, 120), tag: "sn-" + note.id });
+        shown = true;
+      }
+    } catch (e) {}
+    if (!shown) toast("⏰ " + title);
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) {}
+    playChime();
+    if (selectedId === note.id) renderEditor();
+    refreshCard(note.id);
+  }
+  function scheduleReminders() {
+    reminderTimers.forEach(clearTimeout); reminderTimers = [];
+    const now = Date.now();
+    notes.forEach((note) => {
+      if (!note.remindAt || note.remindDone) return;
+      const t = new Date(note.remindAt).getTime(); if (isNaN(t)) return;
+      if (t <= now) { fireReminder(note); return; }
+      const delay = t - now;
+      if (delay < 2147483647) reminderTimers.push(setTimeout(() => fireReminder(note), delay));
+    });
+  }
+
   function updateCard(id) { refreshCard(id); }
   function flashSaving() { const s = $("#saved"); if (!s) return; s.innerHTML = "Saving…"; clearTimeout(flashSaving._t); flashSaving._t = setTimeout(() => { s.innerHTML = '<span class="dot"></span>Saved'; }, 500); }
 
@@ -1095,10 +1179,19 @@
   }
 
   let dragIdx = null;
+  const openSteps = new Set(); // which items have their "break it down" panel open
   function renderChecklist(n) {
     const items = n.items || [];
-    const done = items.filter((i) => i.checked).length;
+    const done = items.filter(itemDone).length;
     const allDone = items.length > 0 && done === items.length;
+    // Re-render + persist + refresh the card, firing celebration when the whole
+    // list flips to complete.
+    const commit = (wasDone) => {
+      touch(n); saveSoon();
+      const nowAll = items.length > 0 && items.every(itemDone);
+      if (nowAll && !wasDone) { playChime(); celebrate(); }
+      renderChecklist(n); refreshCard(n.id);
+    };
     $("#body").innerHTML = `
       <div class="chk-controls">
         <label class="repeat-ctl">🔁 Repeats
@@ -1109,13 +1202,26 @@
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
       <div class="chk">
         <div class="items" id="items">
-          ${items.map((it, idx) => `
-            <div class="item ${it.checked ? "done" : ""}" draggable="true" data-idx="${idx}" data-id="${it.id}">
+          ${items.map((it, idx) => {
+            const subs = it.sub || [];
+            const dn = itemDone(it);
+            const open = openSteps.has(it.id) || subs.length > 0;
+            const subrows = subs.map((s) => `
+              <div class="subitem ${s.checked ? "done" : ""}">
+                <button class="check sub" data-subtoggle="${it.id}|${s.id}" aria-label="Toggle step">${ACORN(s.checked)}</button>
+                <input class="item-text" data-subtext="${it.id}|${s.id}" value="${esc(s.text)}" />
+                <button class="item-del" data-subdel="${it.id}|${s.id}" aria-label="Remove step">✕</button>
+              </div>`).join("");
+            return `
+            <div class="item ${dn ? "done" : ""}" draggable="true" data-idx="${idx}" data-id="${it.id}">
               <span class="grip" title="Drag to reorder">⠿</span>
-              <button class="check" data-toggle="${it.id}" aria-label="Toggle">${ACORN(it.checked)}</button>
+              <button class="check" data-toggle="${it.id}" aria-label="Toggle">${ACORN(dn)}</button>
               <input class="item-text" data-text="${it.id}" value="${esc(it.text)}" />
+              <button class="stepbtn ${open ? "on" : ""}" data-steps="${it.id}" title="Break into steps">⤵${subs.length ? `<span class="stepn">${subs.filter((s) => s.checked).length}/${subs.length}</span>` : ""}</button>
               <button class="item-del" data-del="${it.id}" aria-label="Remove">✕</button>
-            </div>`).join("")}
+            </div>
+            ${open ? `<div class="substeps">${subrows}<div class="addsub"><span class="plus">＋</span><input data-addsub="${it.id}" placeholder="Add a step…" /></div></div>` : ""}`;
+          }).join("")}
         </div>
         <div class="additem"><span class="plus">＋</span><input id="newItem" placeholder="Add an item…" /></div>
       </div>
@@ -1125,25 +1231,62 @@
           <div class="bulk-actions"><button class="btn-sm accent" id="bulkSplit">Split into to-dos</button><button class="btn-sm" id="bulkCancel">Cancel</button></div>
         </div>` : `<button class="link" id="showBulk">＋ Add from text…</button>`}
     `;
+    // toggle a top-level item (also flips all its sub-steps)
     $("#body").querySelectorAll("[data-toggle]").forEach((el) => el.addEventListener("click", () => {
       const it = items.find((x) => x.id === el.dataset.toggle);
-      const before = items.filter((i) => i.checked).length;
-      it.checked = !it.checked; touch(n); saveSoon();
-      if (it.checked) bumpStat();
-      const after = items.filter((i) => i.checked).length;
-      if (items.length > 0 && after === items.length && before < items.length) { playChime(); celebrate(); }
-      renderChecklist(n); updateCard(n.id, ".card-sub", preview(n)); updateMini(n.id);
+      const wasAll = items.length > 0 && items.every(itemDone);
+      const nowDone = !itemDone(it);
+      if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = nowDone));
+      it.checked = nowDone;
+      if (nowDone) bumpStat();
+      commit(wasAll);
     }));
-    $("#body").querySelectorAll("[data-del]").forEach((el) => el.addEventListener("click", () => { n.items = items.filter((x) => x.id !== el.dataset.del); touch(n); saveSoon(); renderChecklist(n); updateCard(n.id, ".card-sub", preview(n)); updateMini(n.id); }));
+    // toggle a single sub-step
+    $("#body").querySelectorAll("[data-subtoggle]").forEach((el) => el.addEventListener("click", () => {
+      const [iid, sid] = el.dataset.subtoggle.split("|");
+      const it = items.find((x) => x.id === iid); const s = (it.sub || []).find((x) => x.id === sid);
+      const wasAll = items.length > 0 && items.every(itemDone);
+      s.checked = !s.checked; it.checked = it.sub.every((z) => z.checked);
+      if (s.checked) bumpStat();
+      commit(wasAll);
+    }));
+    $("#body").querySelectorAll("[data-del]").forEach((el) => el.addEventListener("click", () => { n.items = items.filter((x) => x.id !== el.dataset.del); touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id); }));
+    $("#body").querySelectorAll("[data-subdel]").forEach((el) => el.addEventListener("click", () => {
+      const [iid, sid] = el.dataset.subdel.split("|");
+      const it = items.find((x) => x.id === iid); it.sub = (it.sub || []).filter((x) => x.id !== sid);
+      if (it.sub.length) it.checked = it.sub.every((z) => z.checked);
+      touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id);
+    }));
     $("#body").querySelectorAll("[data-text]").forEach((el) => el.addEventListener("input", () => { const it = items.find((x) => x.id === el.dataset.text); it.text = el.value; touch(n); saveSoon(); flashSaving(); }));
+    $("#body").querySelectorAll("[data-subtext]").forEach((el) => el.addEventListener("input", () => {
+      const [iid, sid] = el.dataset.subtext.split("|");
+      const it = items.find((x) => x.id === iid); const s = (it.sub || []).find((x) => x.id === sid);
+      if (s) { s.text = el.value; touch(n); saveSoon(); flashSaving(); }
+    }));
+    // "break it down" — reveal/hide the sub-step panel for an item
+    $("#body").querySelectorAll("[data-steps]").forEach((el) => el.addEventListener("click", () => {
+      const id = el.dataset.steps;
+      if (openSteps.has(id)) openSteps.delete(id); else openSteps.add(id);
+      renderChecklist(n);
+      const inp = $(`[data-addsub="${id}"]`); if (inp) inp.focus();
+    }));
+    $("#body").querySelectorAll("[data-addsub]").forEach((el) => el.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && el.value.trim()) {
+        const it = items.find((x) => x.id === el.dataset.addsub);
+        it.sub = it.sub || []; it.sub.push({ id: uid(), text: el.value.trim(), checked: false });
+        it.checked = it.sub.every((z) => z.checked);
+        openSteps.add(it.id); touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id);
+        const inp = $(`[data-addsub="${it.id}"]`); if (inp) inp.focus();
+      }
+    }));
     const ni = $("#newItem");
-    if (ni) ni.addEventListener("keydown", (e) => { if (e.key === "Enter" && ni.value.trim()) { n.items = [...items, { id: uid(), text: ni.value.trim(), checked: false }]; touch(n); saveSoon(); renderChecklist(n); updateCard(n.id, ".card-sub", preview(n)); updateMini(n.id); $("#newItem").focus(); } });
+    if (ni) ni.addEventListener("keydown", (e) => { if (e.key === "Enter" && ni.value.trim()) { n.items = [...items, { id: uid(), text: ni.value.trim(), checked: false }]; touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id); $("#newItem").focus(); } });
     const sb = $("#showBulk"); if (sb) sb.onclick = () => { showBulk = true; renderChecklist(n); $("#bulkText").focus(); };
     const bc = $("#bulkCancel"); if (bc) bc.onclick = () => { showBulk = false; renderChecklist(n); };
     const bs = $("#bulkSplit"); if (bs) bs.onclick = () => {
       const lines = $("#bulkText").value.split(/\r?\n/).map((l) => l.replace(/^[-*\[\]xX\d.)\s]+/, "").trim()).filter(Boolean);
       if (lines.length) { n.items = [...items, ...lines.map((text) => ({ id: uid(), text, checked: false }))]; touch(n); saveSoon(); }
-      showBulk = false; renderChecklist(n); updateCard(n.id, ".card-sub", preview(n)); updateMini(n.id);
+      showBulk = false; renderChecklist(n); refreshCard(n.id);
     };
     $("#body").querySelectorAll(".item").forEach((el) => {
       el.addEventListener("dragstart", () => { dragIdx = +el.dataset.idx; });
@@ -1217,6 +1360,10 @@
             <button data-sound="off" class="${!prefs.sound ? "on" : ""}">Off</button>
             <button data-sound="on" class="${prefs.sound ? "on" : ""}">On 🔔</button>
           </div></div>
+        <div><div class="group-label">Reminders</div>
+          <button class="btn-sm" id="remPerm" style="align-self:flex-start"></button>
+          <p class="fineprint" style="margin:0.4rem 0 0">Get an alert when a note's ⏰ reminder time hits. Reliable while SquirrelNote is open or added to your home screen; overdue reminders also ping when you reopen it.</p>
+        </div>
         <button class="btn-sm" id="resetPrefs" style="align-self:flex-start">↺ Reset to defaults</button>
         <p class="fineprint">Notes &amp; settings live in this browser only. Grab an <strong>Export backup</strong> from the sidebar to keep them safe.</p>
       </div>`;
@@ -1227,6 +1374,16 @@
     root.querySelectorAll("[data-sound]").forEach((el) => el.addEventListener("click", () => {
       prefs.sound = el.dataset.sound === "on"; savePrefs(); if (prefs.sound) playChime(); openSettings();
     }));
+    const rp = $("#remPerm");
+    if (rp) {
+      const setLbl = () => {
+        const p = reminderPermission();
+        rp.textContent = p === "granted" ? "✅ Reminders on" : p === "denied" ? "🔕 Blocked in browser settings" : p === "unsupported" ? "Not supported in this browser" : "🔔 Enable reminders";
+        rp.disabled = (p !== "default");
+      };
+      setLbl();
+      rp.onclick = async () => { await requestReminderPerm(); setLbl(); };
+    }
     root.querySelectorAll("[data-ct]").forEach((el) => el.addEventListener("click", () => {
       prefs.colorByTag = el.dataset.ct === "on"; savePrefs(); renderList(); renderEditor(); openSettings();
     }));
@@ -1253,7 +1410,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [
@@ -1404,6 +1561,7 @@
   resetRecurring();
   checkHash();
   applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak();
+  scheduleReminders();
   maybeWeeklyWins();
   // Direct open (outside the iframe) with ?capture=1 or #capture pops capture.
   if (/[?&]capture=1/.test(location.search) || location.hash === "#capture") openQuickCapture();

@@ -424,6 +424,38 @@
   .remind-clear { color: var(--muted); font-size: 0.8rem; padding: 0.2rem 0.45rem; }
   .remind-clear:hover { color: var(--fg); }
 
+  /* undo snackbar */
+  .toast.undo { display: flex; align-items: center; gap: 0.85rem; }
+  .toast-undo { background: rgba(255,255,255,0.22); color: #fff; border-radius: 8px; padding: 0.2rem 0.65rem; font-weight: 800; font-family: var(--round); }
+  .toast-undo:hover { background: rgba(255,255,255,0.34); }
+
+  /* focus mode */
+  .focus { position: fixed; inset: 0; z-index: 50; background: linear-gradient(160deg, var(--app-bg), var(--surface-2)); display: grid; place-items: center; padding: 1.5rem; animation: fade 0.2s ease; }
+  .focus-inner { max-width: 430px; width: 100%; text-align: center; display: flex; flex-direction: column; gap: 1.1rem; align-items: center; }
+  .focus-count { font-family: var(--round); font-weight: 800; font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .focus-task { font-family: var(--serif); font-weight: 700; font-size: 1.9rem; line-height: 1.28; color: var(--fg); word-break: break-word; }
+  .focus-big { font-size: 3.4rem; animation: bob 3s ease-in-out infinite; }
+  .focus-timer { font-family: var(--round); font-weight: 800; font-size: 2.3rem; color: var(--accent); min-height: 1.2em; font-variant-numeric: tabular-nums; }
+  .focus-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+  .focus-actions .btn-sm { padding: 0.5rem 0.95rem; }
+  .focus-exit { margin-top: 0.4rem; color: var(--muted); font-size: 0.85rem; }
+  .focus-exit:hover { color: var(--fg); }
+
+  /* low-stim / calm mode: strip motion + flatten to calmer surfaces */
+  :root[data-lowstim="1"] *, :root[data-lowstim="1"] *::before, :root[data-lowstim="1"] *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  :root[data-lowstim="1"] #rail::before, :root[data-lowstim="1"] .brand .mark, :root[data-lowstim="1"] #fab { background: var(--surface-2) !important; box-shadow: none !important; color: var(--fg) !important; }
+  :root[data-lowstim="1"] #fab { border: 1px solid var(--border); }
+
+  /* brain dump — a freeform scratch space */
+  .bd-pane { position: fixed; inset: 0; z-index: 45; background: var(--app-bg); display: flex; flex-direction: column; animation: fade 0.18s ease; }
+  .bd-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .bd-title { font-family: var(--round); font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 0.4rem; flex: 1; }
+  .bd-save { font-size: 0.7rem; color: var(--muted); min-width: 3.5rem; text-align: right; }
+  .bd-area { flex: 1; width: 100%; border: none; background: var(--app-bg); color: var(--fg); padding: 1rem 1.1rem; font-family: var(--body-font); font-size: 1.02rem; line-height: 1.7; resize: none; }
+  .bd-area:focus { outline: none; }
+  .bd-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem calc(0.6rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
+  .bd-bar .spacer { flex: 1; }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -467,6 +499,7 @@
     <div class="brand"><span class="mark">🐿️</span><span class="word">SquirrelNote</span></div>
     <div class="newbtns">
       <button class="btn btn-primary" id="quickAdd">⚡ Quick capture</button>
+      <button class="btn btn-soft" id="brainDumpBtn">🧠 Brain dump</button>
       <div style="display:flex;gap:.45rem">
         <button class="btn btn-soft" id="newNote" style="flex:1">＋ Note</button>
         <button class="btn btn-soft" id="newList" style="flex:1">✓ List</button>
@@ -530,9 +563,10 @@
     ["Moss", "#6f9b57"], ["Honey", "#e0a92e"],
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
-  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true };
+  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false };
   const STATS_KEY = "squirrelnote.stats.v1";
   const TEMPLATES_KEY = "squirrelnote.templates.v1";
+  const BRAINDUMP_KEY = "squirrelnote.braindump.v1";
   // Deterministic per-tag colors: the same tag always maps to the same hue.
   const TAG_PALETTE = ["#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#5bb0a7", "#6fb0d4", "#7f8fd4", "#9b8ad4", "#d98bb0", "#c98a6a"];
   function tagHash(t) { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return h; }
@@ -566,7 +600,92 @@
   function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(persist, 250); }
   // Flush any pending save immediately — used when the app is backgrounded or
   // closed so nothing typed in the last moment is lost.
-  function flushSave() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } persist(); }
+  function flushSave() { if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; } persist(); saveBrainDumpNow(); }
+
+  // ---- brain dump: a freeform, always-there scratch space ----
+  let brainDump = "", bdTimer = null;
+  function loadBrainDump() { try { brainDump = localStorage.getItem(BRAINDUMP_KEY) || ""; } catch (e) { brainDump = ""; } }
+  function saveBrainDumpNow() { if (bdTimer) { clearTimeout(bdTimer); bdTimer = null; } try { localStorage.setItem(BRAINDUMP_KEY, brainDump); } catch (e) {} }
+  function saveBrainDumpSoon() { clearTimeout(bdTimer); bdTimer = setTimeout(saveBrainDumpNow, 300); }
+  function openBrainDump() {
+    const root = $("#modalRoot");
+    root.innerHTML = `
+      <div class="bd-pane">
+        <div class="bd-head">
+          <button class="backbar" id="bdBack">‹ Back</button>
+          <span class="bd-title">🧠 Brain dump</span>
+          <span class="bd-save" id="bdSave"></span>
+        </div>
+        <textarea class="bd-area" id="bdArea" placeholder="Dump everything here — no structure, no pressure.&#10;Thoughts, worries, ideas, half-formed to-dos… get it out of your head.&#10;&#10;It autosaves. Turn it into notes whenever you're ready."></textarea>
+        <div class="bd-bar">
+          <button class="btn-sm" id="bdMic">🎤 Speak</button>
+          <span class="spacer"></span>
+          <button class="btn-sm" id="bdClear">🗑 Clear</button>
+          <button class="btn-sm accent" id="bdMake">✨ Make notes</button>
+        </div>
+      </div>`;
+    const ta = $("#bdArea"), save = $("#bdSave");
+    ta.value = brainDump;
+    ta.addEventListener("input", () => {
+      brainDump = ta.value; saveBrainDumpSoon();
+      if (save) { save.textContent = "saving…"; clearTimeout(save._t); save._t = setTimeout(() => { if (save) save.textContent = "saved ✓"; }, 500); }
+    });
+    $("#bdBack").onclick = () => { brainDump = ta.value; saveBrainDumpNow(); closeSettings(); };
+    $("#bdClear").onclick = () => {
+      if (!ta.value.trim() || confirm("Clear the whole brain dump? This can't be undone.")) { ta.value = ""; brainDump = ""; saveBrainDumpNow(); ta.focus(); }
+    };
+    $("#bdMake").onclick = () => { brainDump = ta.value; brainDumpMake(); };
+    // voice dictation straight into the dump
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const mic = $("#bdMic");
+    if (!Rec) { if (mic) mic.style.display = "none"; }
+    else if (mic) {
+      let rec = null, listening = false, base = "";
+      const stopUI = () => { listening = false; mic.textContent = "🎤 Speak"; mic.classList.remove("accent", "mic-on"); };
+      mic.onclick = () => {
+        if (listening) { try { rec.stop(); } catch (e) {} return; }
+        try {
+          rec = new Rec(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = true;
+          base = ta.value.trim();
+          rec.onresult = (ev) => { let txt = ""; for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript; ta.value = (base ? base + "\n" : "") + txt; brainDump = ta.value; saveBrainDumpSoon(); };
+          rec.onend = stopUI; rec.onerror = stopUI;
+          rec.start(); listening = true; mic.textContent = "⏹ Stop"; mic.classList.add("accent", "mic-on"); ta.focus();
+        } catch (e) { alert("Voice input isn't available in this browser. Try Chrome."); stopUI(); }
+      };
+    }
+    setTimeout(() => ta.focus(), 60);
+  }
+  // Turn the brain dump into structured notes.
+  function brainDumpMake() {
+    const text = (brainDump || "").trim();
+    if (!text) { toast("Nothing to convert yet"); return; }
+    const root = $("#modalRoot");
+    const wrap = document.createElement("div");
+    wrap.innerHTML = `<div class="scrim" id="bdmScrim" style="z-index:60"></div>
+      <div class="qc" style="max-width:400px;z-index:61">
+        <h2 style="justify-content:center">✨ Make notes</h2>
+        <p class="fineprint" style="margin:0;text-align:center">Turn your brain dump into something structured. (Your dump stays put.)</p>
+        <div style="display:flex;flex-direction:column;gap:.5rem">
+          <button class="btn-sm" data-mk="note">📝 One note (the whole thing)</button>
+          <button class="btn-sm" data-mk="list">✓ A checklist (each line a to-do)</button>
+          <button class="btn-sm" data-mk="split">🗂 Split into notes (by blank lines)</button>
+        </div>
+        <div class="qc-row"><span style="flex:1"></span><button class="btn-sm" id="bdmCancel">Cancel</button></div>
+      </div>`;
+    root.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector("#bdmScrim").onclick = close;
+    wrap.querySelector("#bdmCancel").onclick = close;
+    wrap.querySelectorAll("[data-mk]").forEach((b) => b.onclick = () => {
+      const mode = b.dataset.mk;
+      if (mode === "note") createNoteFromText(text);
+      else if (mode === "list") createChecklistFromText(text);
+      else { text.split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean).forEach((bl) => createNoteFromText(bl)); }
+      saveBrainDumpNow();
+      closeSettings(); // leave brain dump, reveal the new note(s)
+      toast("Added ✓ — your dump is still saved");
+    });
+  }
 
   // ---- streaks & daily wins ----
   let stats = { days: {}, xp: 0 };
@@ -656,8 +775,8 @@
   // brief celebratory toast (level-ups, etc.)
   let toastT = null;
   function toast(msg) {
-    let el = document.querySelector(".toast");
-    if (!el) { el = document.createElement("div"); el.className = "toast"; document.body.appendChild(el); }
+    let el = document.querySelector(".toast.info");
+    if (!el) { el = document.createElement("div"); el.className = "toast info"; document.body.appendChild(el); }
     el.textContent = msg;
     requestAnimationFrame(() => el.classList.add("show"));
     clearTimeout(toastT);
@@ -793,10 +912,58 @@
     setTimeout(() => ta.focus(), 40);
   }
 
+  // ---- focus mode: one task at a time, with a 5-minute body-double timer ----
+  let focusTimer = null, focusRemain = 0;
+  function stopFocusTimer() { if (focusTimer) { clearInterval(focusTimer); focusTimer = null; } }
+  function focusFmt() { return focusRemain > 0 ? `${Math.floor(focusRemain / 60)}:${String(focusRemain % 60).padStart(2, "0")}` : ""; }
+  function openFocus(n) {
+    const root = $("#modalRoot");
+    function draw() {
+      const todo = (n.items || []).filter((it) => !itemDone(it));
+      if (!todo.length) {
+        stopFocusTimer();
+        root.innerHTML = `<div class="focus"><div class="focus-inner"><div class="focus-big">🎉</div><div class="focus-task">All done!</div><p style="color:var(--muted);margin:0">You cleared this whole list. 🌰</p><button class="btn-sm accent" id="focusClose">Nice!</button></div></div>`;
+        $("#focusClose").onclick = closeSettings; celebrate(); playChime();
+        return;
+      }
+      const it = todo[0];
+      const pos = n.items.length - todo.length + 1;
+      root.innerHTML = `<div class="focus"><div class="focus-inner">
+        <div class="focus-count">Task ${pos} of ${n.items.length}</div>
+        <div class="focus-task">${esc(it.text) || "…"}</div>
+        <div class="focus-timer" id="focusTimer">${focusFmt()}</div>
+        <div class="focus-actions">
+          <button class="btn-sm" id="focusTimerBtn">${focusTimer ? "⏸ Pause" : "▶ Just 5 min"}</button>
+          ${todo.length > 1 ? `<button class="btn-sm" id="focusSkip">Skip ↷</button>` : ""}
+          <button class="btn-sm accent" id="focusDone">✓ Done</button>
+        </div>
+        <button class="focus-exit" id="focusExit">✕ Exit focus</button>
+      </div></div>`;
+      $("#focusExit").onclick = () => { stopFocusTimer(); closeSettings(); };
+      $("#focusDone").onclick = () => {
+        it.checked = true; if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = true));
+        bumpStat(); touch(n); saveSoon(); refreshCard(n.id); draw();
+      };
+      const sk = $("#focusSkip"); if (sk) sk.onclick = () => { const arr = n.items, i = arr.indexOf(it); arr.push(arr.splice(i, 1)[0]); touch(n); saveSoon(); draw(); };
+      $("#focusTimerBtn").onclick = () => {
+        if (focusTimer) { stopFocusTimer(); }
+        else {
+          if (focusRemain <= 0) focusRemain = 5 * 60;
+          focusTimer = setInterval(() => {
+            focusRemain--; const t = $("#focusTimer"); if (t) t.textContent = focusFmt();
+            if (focusRemain <= 0) { stopFocusTimer(); playChime(); try { if (navigator.vibrate) navigator.vibrate([200, 80, 200]); } catch (e) {} const b = $("#focusTimerBtn"); if (b) b.textContent = "▶ Just 5 min"; }
+          }, 1000);
+        }
+        const b = $("#focusTimerBtn"); if (b) b.textContent = focusTimer ? "⏸ Pause" : "▶ Just 5 min";
+      };
+    }
+    draw();
+  }
+
   // ---- optional completion chime (Web Audio, no asset) ----
   let audioCtx = null;
   function playChime() {
-    if (!prefs.sound) return;
+    if (prefs.lowStim || !prefs.sound) return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       [523.25, 659.25, 783.99].forEach((f, i) => {
@@ -825,6 +992,7 @@
     const root = document.documentElement;
     root.dataset.theme = resolveTheme();
     root.dataset.density = prefs.density;
+    root.dataset.lowstim = prefs.lowStim ? "1" : "";
     root.style.setProperty("--accent", prefs.accent);
     root.style.setProperty("--accent-contrast", contrastFor(prefs.accent));
     root.style.setProperty("--body-font", FONTS[prefs.bodyFont] || "var(--sans)");
@@ -869,7 +1037,32 @@
     setTimeout(() => { const t = $("#edTitle"); if (t) { t.focus(); t.select(); } }, 30);
   }
   function patch(id, p) { const n = notes.find((x) => x.id === id); if (!n) return; Object.assign(n, p); touch(n); saveSoon(); }
-  function del(id) { notes = notes.filter((n) => n.id !== id); if (selectedId === id) selectedId = null; persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); }
+  let lastDeleted = null, undoTO = null;
+  function del(id) {
+    const idx = notes.findIndex((n) => n.id === id);
+    if (idx === -1) return;
+    lastDeleted = { note: notes[idx], idx };
+    notes.splice(idx, 1);
+    if (selectedId === id) selectedId = null;
+    persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
+    undoToast("🗑 Note deleted", () => {
+      if (!lastDeleted) return;
+      notes.splice(Math.min(lastDeleted.idx, notes.length), 0, lastDeleted.note);
+      selectedId = lastDeleted.note.id; lastDeleted = null;
+      persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
+    });
+  }
+  function undoToast(msg, onUndo) {
+    const old = document.querySelector(".toast.undo"); if (old) old.remove();
+    const el = document.createElement("div"); el.className = "toast undo";
+    el.innerHTML = `<span></span>`; el.firstChild.textContent = msg;
+    const b = document.createElement("button"); b.className = "toast-undo"; b.textContent = "Undo";
+    b.onclick = () => { clearTimeout(undoTO); el.classList.remove("show"); setTimeout(() => el.remove(), 300); onUndo(); };
+    el.appendChild(b); document.body.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    clearTimeout(undoTO);
+    undoTO = setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 300); }, 6000);
+  }
 
   function setSelectedFlag() { $("#app").dataset.selected = selectedId ? "1" : "0"; }
 
@@ -965,6 +1158,7 @@
     return null;
   }
   function cardStyle(n) {
+    if (prefs.lowStim) return "";
     const c = effectiveColor(n);
     return c
       ? `style="background:color-mix(in srgb, ${esc(c)} 20%, var(--surface));border-color:color-mix(in srgb, ${esc(c)} 42%, var(--border))"`
@@ -1209,6 +1403,7 @@
         <label class="repeat-ctl">🔁 Repeats
           <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
         </label>
+        <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
       </div>
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
@@ -1310,6 +1505,8 @@
     });
     const rs = $("#repeatSel");
     if (rs) { rs.value = n.repeat || "none"; rs.onchange = () => { n.repeat = rs.value; n.lastReset = periodKey(rs.value); touch(n); saveSoon(); refreshCard(n.id); }; }
+    const fb = $("#focusBtn");
+    if (fb) fb.onclick = () => { if ((n.items || []).some((it) => !itemDone(it))) openFocus(n); else toast("Nothing left to focus on 🎉"); };
     const stb = $("#saveTplBtn");
     if (stb) stb.onclick = () => { saveTemplate(n); stb.textContent = "✓ Saved as routine!"; setTimeout(() => { const b = $("#saveTplBtn"); if (b) b.textContent = "⤓ Save as routine"; }, 1400); };
   }
@@ -1317,6 +1514,7 @@
 
   // ---- confetti ----
   function celebrate() {
+    if (prefs.lowStim) return;
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const cv = $("#confetti"), ctx = cv.getContext("2d");
     const W = cv.width = innerWidth, H = cv.height = innerHeight;
@@ -1372,6 +1570,11 @@
             <button data-sound="off" class="${!prefs.sound ? "on" : ""}">Off</button>
             <button data-sound="on" class="${prefs.sound ? "on" : ""}">On 🔔</button>
           </div></div>
+        <div><div class="group-label">Calm mode (low stim)</div>
+          <div class="dseg" id="calmSeg">
+            <button data-calm="off" class="${!prefs.lowStim ? "on" : ""}">Off</button>
+            <button data-calm="on" class="${prefs.lowStim ? "on" : ""}">On 😌</button>
+          </div></div>
         <div><div class="group-label">Reminders</div>
           <button class="btn-sm" id="remPerm" style="align-self:flex-start"></button>
           <p class="fineprint" style="margin:0.4rem 0 0">Get an alert when a note's ⏰ reminder time hits. Reliable while SquirrelNote is open or added to your home screen; overdue reminders also ping when you reopen it.</p>
@@ -1402,10 +1605,13 @@
     root.querySelectorAll("[data-ac]").forEach((el) => el.addEventListener("click", () => {
       prefs.autoColor = el.dataset.ac === "on"; savePrefs(); renderList(); renderEditor(); openSettings();
     }));
+    root.querySelectorAll("[data-calm]").forEach((el) => el.addEventListener("click", () => {
+      prefs.lowStim = el.dataset.calm === "on"; savePrefs(); applyPrefs(); renderList(); renderEditor(); openSettings();
+    }));
     $("#resetPrefs").onclick = () => { prefs = { ...DEFAULT_PREFS }; savePrefs(); applyPrefs(); renderList(); openSettings(); };
   }
   function seg(key, opts) { return `<div class="dseg">${opts.map(([v, l]) => `<button class="${prefs[key] === v ? "on" : ""}" data-seg="${key}" data-val="${v}">${l}</button>`).join("")}</div>`; }
-  function closeSettings() { $("#modalRoot").innerHTML = ""; }
+  function closeSettings() { stopFocusTimer(); saveBrainDumpNow(); $("#modalRoot").innerHTML = ""; }
 
   function exportData() {
     const blob = new Blob([JSON.stringify({ version: 1, exported: now(), notes }, null, 2)], { type: "application/json" });
@@ -1539,6 +1745,7 @@
   }
 
   $("#quickAdd").onclick = () => openQuickCapture();
+  $("#brainDumpBtn").onclick = () => { openBrainDump(); if (window.innerWidth <= 940) $("#app").classList.remove("rail-open"); };
   $("#fab").onclick = () => openQuickCapture();
   document.addEventListener("keydown", (e) => {
     if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) { e.preventDefault(); openQuickCapture(); }
@@ -1572,7 +1779,7 @@
     renderList();
   }));
 
-  loadPrefs(); loadNotes(); loadStats(); loadTemplates();
+  loadPrefs(); loadNotes(); loadStats(); loadTemplates(); loadBrainDump();
   if (!notes.length) seed();
   // First ever launch (templates key never written) → drop in starter routines.
   if (localStorage.getItem(TEMPLATES_KEY) === null) seedTemplates();

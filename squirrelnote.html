@@ -456,6 +456,16 @@
   .bd-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem calc(0.6rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
   .bd-bar .spacer { flex: 1; }
 
+  /* daily affirmation */
+  #affirm:empty { display: none; }
+  .affirm-card { display: flex; align-items: center; gap: 0.6rem; margin: 0 0.9rem 0.55rem; padding: 0.55rem 0.85rem; border-radius: var(--radius);
+    background: linear-gradient(120deg, var(--accent-soft), color-mix(in srgb, var(--moss) 14%, var(--surface))); border: 1px solid var(--border); box-shadow: var(--shadow-sm); animation: pop 0.3s var(--ease-spring); }
+  .affirm-text { flex: 1; font-family: var(--serif); font-size: 0.94rem; line-height: 1.4; color: var(--fg); }
+  .affirm-btns { display: flex; gap: 0.1rem; flex-shrink: 0; }
+  .affirm-btn { color: var(--muted); font-size: 0.85rem; padding: 0.2rem 0.38rem; border-radius: 8px; transition: transform 0.12s var(--ease-spring), color 0.14s; }
+  .affirm-btn:hover { color: var(--accent); }
+  .affirm-btn:active { transform: scale(0.9); }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -535,6 +545,7 @@
         <button data-kind="checklist">To-dos</button>
       </div>
     </div>
+    <div id="affirm"></div>
     <ul id="list" class="scroll"></ul>
   </section>
 
@@ -563,7 +574,26 @@
     ["Moss", "#6f9b57"], ["Honey", "#e0a92e"],
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
-  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false };
+  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true };
+  const DEFAULT_AFFIRMATIONS = [
+    "One small step still counts. 🌱",
+    "You don't have to do it all today.",
+    "Starting is the hard part — and you're here.",
+    "Done is better than perfect.",
+    "Your brain works differently, not wrong.",
+    "Progress, not perfection.",
+    "Rest is productive too.",
+    "You've gotten through hard days before.",
+    "It's okay to do it messy.",
+    "Small wins add up. 🌰",
+    "You're allowed to be proud of little things.",
+    "Forgetting something doesn't make you a failure.",
+    "Five minutes counts. Just start there.",
+    "You are more than your to-do list.",
+    "Be as kind to yourself as you'd be to a friend.",
+    "Tomorrow is a fresh start.",
+    "You showed up today — that matters.",
+  ];
   const STATS_KEY = "squirrelnote.stats.v1";
   const TEMPLATES_KEY = "squirrelnote.templates.v1";
   const BRAINDUMP_KEY = "squirrelnote.braindump.v1";
@@ -746,6 +776,9 @@
       { id: uid(), name: "Morning ☀️", tags: ["routine"], color: "#f0a35e", repeat: "daily",
         items: [ { text: "Meds / vitamins" }, { text: "Big glass of water" }, { text: "Make the bed" },
           { text: "Quick tidy — one surface" }, { text: "Set today's ONE main thing" } ] },
+      { id: uid(), name: "Afternoon 🌤️", tags: ["routine"], color: "#5bb0a7", repeat: "daily",
+        items: [ { text: "Midday meds / water" }, { text: "Move or stretch — 5 min" }, { text: "Snack + step away from the screen" },
+          { text: "Reset one surface" }, { text: "Check: did I start my ONE thing?" } ] },
       { id: uid(), name: "Evening 🌙", tags: ["routine"], color: "#9b8ad4", repeat: "daily",
         items: [ { text: "Meds" }, { text: "Lay out clothes for tomorrow" }, { text: "Dishes in the sink" },
           { text: "Phone on the charger (across the room)" }, { text: "Brain-dump tomorrow's to-dos" } ] },
@@ -781,6 +814,44 @@
     requestAnimationFrame(() => el.classList.add("show"));
     clearTimeout(toastT);
     toastT = setTimeout(() => { el.classList.remove("show"); }, 2600);
+  }
+
+  // ---- daily affirmation ----
+  let affirmShuffle = 0;
+  function affirmationList() {
+    const custom = (prefs.affirmList || "").split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    return custom.length ? custom : DEFAULT_AFFIRMATIONS;
+  }
+  function renderAffirmation() {
+    const el = $("#affirm"); if (!el) return;
+    const list = affirmationList();
+    if (!prefs.affirmations || !list.length || prefs.affirmDismissed === todayKey()) { el.innerHTML = ""; return; }
+    const dayNum = Math.floor(new Date(todayKey()).getTime() / 86400000) || 0;
+    const idx = (((dayNum + affirmShuffle) % list.length) + list.length) % list.length;
+    el.innerHTML = `<div class="affirm-card"><span class="affirm-text">${esc(list[idx])}</span><div class="affirm-btns"><button class="affirm-btn" id="affirmShuffle" title="Another one">🔀</button><button class="affirm-btn" id="affirmClose" title="Hide for today">✕</button></div></div>`;
+    $("#affirmShuffle").onclick = () => { affirmShuffle++; renderAffirmation(); };
+    $("#affirmClose").onclick = () => { prefs.affirmDismissed = todayKey(); savePrefs(); renderAffirmation(); };
+  }
+  function openAffirmEditor() {
+    const root = $("#modalRoot");
+    const cur = (prefs.affirmList || "").trim() || DEFAULT_AFFIRMATIONS.join("\n");
+    root.innerHTML = `<div class="scrim" id="affScrim"></div>
+      <div class="qc" style="max-width:460px">
+        <h2 style="justify-content:center">🌱 Your affirmations</h2>
+        <p class="fineprint" style="margin:0;text-align:center">One per line — a different one greets you each day. Write your own or keep these.</p>
+        <textarea id="affText" style="min-height:230px"></textarea>
+        <div class="qc-row"><button class="btn-sm" id="affReset">↺ Defaults</button><span style="flex:1"></span><button class="btn-sm" id="affCancel">Cancel</button><button class="btn-sm accent" id="affSave">Save</button></div>
+      </div>`;
+    $("#affText").value = cur;
+    $("#affScrim").onclick = closeSettings;
+    $("#affCancel").onclick = openSettings;
+    $("#affReset").onclick = () => { $("#affText").value = DEFAULT_AFFIRMATIONS.join("\n"); };
+    $("#affSave").onclick = () => {
+      const v = $("#affText").value.trim();
+      prefs.affirmList = (v === DEFAULT_AFFIRMATIONS.join("\n")) ? "" : v;
+      prefs.affirmDismissed = null; savePrefs(); renderAffirmation(); openSettings();
+    };
+    setTimeout(() => $("#affText").focus(), 40);
   }
 
   // ---- weekly wins recap ----
@@ -1575,6 +1646,13 @@
             <button data-calm="off" class="${!prefs.lowStim ? "on" : ""}">Off</button>
             <button data-calm="on" class="${prefs.lowStim ? "on" : ""}">On 😌</button>
           </div></div>
+        <div><div class="group-label">Daily affirmations</div>
+          <div class="dseg" id="affSeg">
+            <button data-aff="off" class="${!prefs.affirmations ? "on" : ""}">Off</button>
+            <button data-aff="on" class="${prefs.affirmations ? "on" : ""}">On 🌱</button>
+          </div>
+          <button class="btn-sm" id="affEdit" style="align-self:flex-start;margin-top:.5rem">✎ Edit affirmations</button>
+        </div>
         <div><div class="group-label">Reminders</div>
           <button class="btn-sm" id="remPerm" style="align-self:flex-start"></button>
           <p class="fineprint" style="margin:0.4rem 0 0">Get an alert when a note's ⏰ reminder time hits. Reliable while SquirrelNote is open or added to your home screen; overdue reminders also ping when you reopen it.</p>
@@ -1608,6 +1686,10 @@
     root.querySelectorAll("[data-calm]").forEach((el) => el.addEventListener("click", () => {
       prefs.lowStim = el.dataset.calm === "on"; savePrefs(); applyPrefs(); renderList(); renderEditor(); openSettings();
     }));
+    root.querySelectorAll("[data-aff]").forEach((el) => el.addEventListener("click", () => {
+      prefs.affirmations = el.dataset.aff === "on"; if (prefs.affirmations) prefs.affirmDismissed = null; savePrefs(); renderAffirmation(); openSettings();
+    }));
+    const ae = $("#affEdit"); if (ae) ae.onclick = openAffirmEditor;
     $("#resetPrefs").onclick = () => { prefs = { ...DEFAULT_PREFS }; savePrefs(); applyPrefs(); renderList(); openSettings(); };
   }
   function seg(key, opts) { return `<div class="dseg">${opts.map(([v, l]) => `<button class="${prefs[key] === v ? "on" : ""}" data-seg="${key}" data-val="${v}">${l}</button>`).join("")}</div>`; }
@@ -1783,9 +1865,18 @@
   if (!notes.length) seed();
   // First ever launch (templates key never written) → drop in starter routines.
   if (localStorage.getItem(TEMPLATES_KEY) === null) seedTemplates();
+  // One-time: add the Afternoon starter routine for anyone who installed before it existed.
+  if (!prefs.addedAfternoon) {
+    if (!templates.some((t) => /afternoon/i.test(t.name || ""))) {
+      templates.push({ id: uid(), name: "Afternoon 🌤️", tags: ["routine"], color: "#5bb0a7", repeat: "daily",
+        items: [ "Midday meds / water", "Move or stretch — 5 min", "Snack + step away from the screen", "Reset one surface", "Check: did I start my ONE thing?" ].map((text) => ({ text })) });
+      saveTemplates();
+    }
+    prefs.addedAfternoon = true; savePrefs();
+  }
   resetRecurring();
   checkHash();
-  applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak();
+  applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak(); renderAffirmation();
   scheduleReminders();
   maybeWeeklyWins();
   // Direct open (outside the iframe) with ?capture=1 or #capture pops capture.

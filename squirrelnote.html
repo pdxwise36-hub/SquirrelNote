@@ -241,6 +241,8 @@
   .tpl-del { color: var(--rail-muted); font-size: 0.72rem; padding: 0.35rem 0.45rem; opacity: 0; transition: opacity 0.14s; }
   .tpl-item:hover .tpl-del { opacity: 0.7; }
   .tpl-del:hover { opacity: 1; }
+  .tpl-add { color: var(--accent); font-weight: 700; }
+  .tpl-add:hover { background: var(--rail-hover); color: var(--accent); }
   .item { display: flex; align-items: center; gap: 0.6rem; padding: 0.42rem 0.4rem; border-radius: 11px; transition: background 0.14s; }
   .item:hover { background: var(--app-bg); }
   .item.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
@@ -726,7 +728,13 @@
   function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch (e) {} }
   function todayKey() { return new Date().toLocaleDateString("en-CA"); }
   function weekKey() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
-  function periodKey(repeat) { return repeat === "weekly" ? weekKey() : todayKey(); }
+  function periodKey(repeat) {
+    if (repeat === "weekly") return weekKey();
+    if (repeat === "monthly") { const d = new Date(); return "M" + d.getFullYear() + "-" + (d.getMonth() + 1); }
+    if (repeat === "weekdays") { const d = new Date(), day = d.getDay(); if (day === 6) d.setDate(d.getDate() - 1); else if (day === 0) d.setDate(d.getDate() - 2); return "WD" + d.toLocaleDateString("en-CA"); }
+    return todayKey(); // daily
+  }
+  const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly" };
   function bumpStat() {
     const k = todayKey(); stats.days[k] = (stats.days[k] || 0) + 1;
     const before = levelFor(stats.xp);
@@ -754,10 +762,45 @@
     });
     if (changed) persist();
   }
+  // Keep "Meds"-type routines pinned to the bottom of the list.
+  function insertTemplate(tpl) {
+    const medsIdx = templates.findIndex((t) => (t.name || "").toLowerCase().includes("meds"));
+    if (medsIdx >= 0 && !(tpl.name || "").toLowerCase().includes("meds")) templates.splice(medsIdx, 0, tpl);
+    else templates.push(tpl);
+  }
   function saveTemplate(n) {
-    templates.push({ id: uid(), name: n.title || "Routine", tags: n.tags || [], color: n.color || null,
+    insertTemplate({ id: uid(), name: n.title || "Routine", tags: n.tags || [], color: n.color || null,
       repeat: n.repeat || "none", items: (n.items || []).map((i) => ({ text: i.text, sub: (i.sub || []).map((s) => ({ text: s.text })) })) });
     saveTemplates(); renderNav();
+  }
+  const ROUTINE_COLORS = ["#f0a35e", "#5bb0a7", "#9b8ad4", "#7fb56e", "#6fb0d4", "#d98bb0", "#e6c34a", "#c98a6a"];
+  function openRoutineCreator() {
+    const root = $("#modalRoot");
+    root.innerHTML = `<div class="scrim" id="rtScrim"></div>
+      <div class="qc" style="max-width:440px">
+        <h2 style="justify-content:center">🔁 New routine</h2>
+        <p class="fineprint" style="margin:0;text-align:center">A checklist that resets on the schedule you pick.</p>
+        <input class="remind-in" id="rtName" placeholder="Routine name (e.g. Laundry day)" style="font-size:1rem;padding:.5rem .7rem" />
+        <label class="repeat-ctl" style="justify-content:center">🔁 Repeats
+          <select id="rtRepeat"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
+        </label>
+        <textarea id="rtItems" placeholder="One step per line…&#10;e.g. Sort lights &amp; darks&#10;Start a load&#10;Move to dryer" style="min-height:120px"></textarea>
+        <div class="qc-row"><span style="flex:1"></span><button class="btn-sm" id="rtCancel">Cancel</button><button class="btn-sm accent" id="rtCreate">Create routine</button></div>
+      </div>`;
+    $("#rtScrim").onclick = closeSettings;
+    $("#rtCancel").onclick = closeSettings;
+    $("#rtCreate").onclick = () => {
+      const name = $("#rtName").value.trim();
+      if (!name) { $("#rtName").focus(); return; }
+      const repeat = $("#rtRepeat").value;
+      const items = $("#rtItems").value.split(/\n+/).map((s) => s.trim()).filter(Boolean).map((text) => ({ text }));
+      const tpl = { id: uid(), name, tags: ["routine"], color: ROUTINE_COLORS[templates.length % ROUTINE_COLORS.length], repeat, items };
+      insertTemplate(tpl); saveTemplates();
+      closeSettings();
+      newFromTemplate(tpl); // spawn a live copy now so it's usable immediately
+      toast("Routine created 🔁");
+    };
+    setTimeout(() => $("#rtName").focus(), 40);
   }
   function newFromTemplate(tpl) {
     const n = { id: uid(), kind: "checklist", title: tpl.name, content: "",
@@ -1152,12 +1195,12 @@
       ts.forEach((t) => html += `<button class="rchip ${filter.tag === t ? "active" : ""}" data-tag="${esc(t)}" style="${filter.tag === t ? `background:${tagColor(t)};color:#fff` : `background:color-mix(in srgb, ${tagColor(t)} 30%, transparent);color:var(--rail-fg)`}">#${esc(t)}</button>`);
       html += `</div>`;
     }
-    if (templates.length) {
-      html += `<div class="nav-label">Routines</div>`;
-      templates.forEach((tp) => html += `<div class="tpl-item"><button class="nav-item tpl-new" data-tpl="${tp.id}">🔁 ${esc(tp.name)}</button><button class="tpl-del" data-tpldel="${tp.id}" title="Delete routine">✕</button></div>`);
-    }
+    html += `<div class="nav-label">Routines</div>`;
+    templates.forEach((tp) => html += `<div class="tpl-item"><button class="nav-item tpl-new" data-tpl="${tp.id}">🔁 ${esc(tp.name)}<span class="count">${REPEAT_LABEL[tp.repeat] || ""}</span></button><button class="tpl-del" data-tpldel="${tp.id}" title="Delete routine">✕</button></div>`);
+    html += `<button class="nav-item tpl-add" id="newRoutine">＋ New routine</button>`;
     nav.innerHTML = html;
     nav.querySelectorAll("[data-tpl]").forEach((el) => el.addEventListener("click", () => { const tp = templates.find((t) => t.id === el.dataset.tpl); if (tp) newFromTemplate(tp); }));
+    const nr = nav.querySelector("#newRoutine"); if (nr) nr.onclick = () => { openRoutineCreator(); if (window.innerWidth <= 940) $("#app").classList.remove("rail-open"); };
     nav.querySelectorAll("[data-tpldel]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); if (confirm("Delete this routine template? (Notes already created from it stay.)")) deleteTemplate(el.dataset.tpldel); }));
     nav.querySelectorAll("[data-kind]").forEach((el) => el.addEventListener("click", () => {
       const k = el.dataset.kind;
@@ -1472,7 +1515,7 @@
     $("#body").innerHTML = `
       <div class="chk-controls">
         <label class="repeat-ctl">🔁 Repeats
-          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
         </label>
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
@@ -1873,6 +1916,13 @@
       saveTemplates();
     }
     prefs.addedAfternoon = true; savePrefs();
+  }
+  // One-time: order routines into a sensible daily flow (Morning → Afternoon →
+  // Evening → custom), with Meds pinned to the bottom.
+  if (!prefs.routineFlowV1) {
+    const rank = (name) => { const n = (name || "").toLowerCase(); if (n.includes("morning")) return 0; if (n.includes("afternoon")) return 1; if (n.includes("evening") || n.includes("night")) return 2; if (n.includes("meds")) return 9; return 5; };
+    templates = templates.map((t, i) => ({ t, i })).sort((a, b) => (rank(a.t.name) - rank(b.t.name)) || (a.i - b.i)).map((x) => x.t);
+    saveTemplates(); prefs.routineFlowV1 = true; savePrefs();
   }
   resetRecurring();
   checkHash();

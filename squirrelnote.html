@@ -639,6 +639,54 @@
   function loadBrainDump() { try { brainDump = localStorage.getItem(BRAINDUMP_KEY) || ""; } catch (e) { brainDump = ""; } }
   function saveBrainDumpNow() { if (bdTimer) { clearTimeout(bdTimer); bdTimer = null; } try { localStorage.setItem(BRAINDUMP_KEY, brainDump); } catch (e) {} }
   function saveBrainDumpSoon() { clearTimeout(bdTimer); bdTimer = setTimeout(saveBrainDumpNow, 300); }
+  // Voice-to-text dictation, shared by Quick Capture and Brain Dump.
+  // Android Chrome's "continuous" speech recognition silently restarts
+  // mid-dictation and REPLAYS everything already heard alongside the new
+  // words (naive code that re-joins the full ev.results list each time
+  // duplicates the whole transcript on every restart — "I need... I need I
+  // need to... I need I need to I need to have..."). The fix: run short,
+  // non-continuous sessions and restart them ourselves between phrases, only
+  // ever appending text once it's marked final (via event.resultIndex),
+  // never re-concatenating the whole results list.
+  function wireVoiceMic(mic, ta, onChange) {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!mic) return;
+    if (!Rec) { mic.style.display = "none"; return; }
+    let rec = null, listening = false, manualStop = false, origBase = "", spoken = "";
+    const stopUI = () => { listening = false; mic.textContent = "🎤 Speak"; mic.classList.remove("accent", "mic-on"); };
+    const render = (interim) => {
+      const body = (spoken + " " + interim).trim();
+      ta.value = (origBase ? origBase + "\n" : "") + body;
+      if (onChange) onChange();
+    };
+    const session = () => {
+      rec = new Rec();
+      rec.lang = navigator.language || "en-US";
+      rec.interimResults = true;
+      rec.continuous = false; // one phrase per session; we drive the restart loop
+      rec.onresult = (ev) => {
+        let interim = "";
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const r = ev.results[i];
+          if (r.isFinal) spoken = (spoken ? spoken + " " : "") + r[0].transcript.trim();
+          else interim += r[0].transcript;
+        }
+        render(interim);
+      };
+      rec.onerror = (ev) => { if (ev.error !== "no-speech" && ev.error !== "aborted") manualStop = true; };
+      rec.onend = () => { if (manualStop) stopUI(); else { try { session(); } catch (e) { stopUI(); } } };
+      rec.start();
+    };
+    mic.onclick = () => {
+      if (listening) { manualStop = true; try { rec.stop(); } catch (e) {} return; }
+      try {
+        manualStop = false; origBase = ta.value.trim(); spoken = "";
+        session();
+        listening = true; mic.textContent = "⏹ Stop"; mic.classList.add("accent", "mic-on"); ta.focus();
+      } catch (e) { alert("Voice input isn't available in this browser. Try Chrome."); stopUI(); }
+    };
+  }
+
   function openBrainDump() {
     const root = $("#modalRoot");
     root.innerHTML = `
@@ -668,23 +716,7 @@
     };
     $("#bdMake").onclick = () => { brainDump = ta.value; brainDumpMake(); };
     // voice dictation straight into the dump
-    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const mic = $("#bdMic");
-    if (!Rec) { if (mic) mic.style.display = "none"; }
-    else if (mic) {
-      let rec = null, listening = false, base = "";
-      const stopUI = () => { listening = false; mic.textContent = "🎤 Speak"; mic.classList.remove("accent", "mic-on"); };
-      mic.onclick = () => {
-        if (listening) { try { rec.stop(); } catch (e) {} return; }
-        try {
-          rec = new Rec(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = true;
-          base = ta.value.trim();
-          rec.onresult = (ev) => { let txt = ""; for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript; ta.value = (base ? base + "\n" : "") + txt; brainDump = ta.value; saveBrainDumpSoon(); };
-          rec.onend = stopUI; rec.onerror = stopUI;
-          rec.start(); listening = true; mic.textContent = "⏹ Stop"; mic.classList.add("accent", "mic-on"); ta.focus();
-        } catch (e) { alert("Voice input isn't available in this browser. Try Chrome."); stopUI(); }
-      };
-    }
+    wireVoiceMic($("#bdMic"), ta, () => { brainDump = ta.value; saveBrainDumpSoon(); });
     setTimeout(() => ta.focus(), 60);
   }
   // Turn the brain dump into structured notes.
@@ -1829,27 +1861,7 @@
       catch (e) { alert("Couldn't read the clipboard here — paste with Ctrl/Cmd+V into the box instead."); }
     };
     // Voice-to-text: dictate straight into the capture box.
-    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const mic = $("#qcMic");
-    if (!Rec) { if (mic) mic.style.display = "none"; }
-    else if (mic) {
-      let rec = null, listening = false, base = "";
-      const stopUI = () => { listening = false; mic.textContent = "🎤 Speak"; mic.classList.remove("accent", "mic-on"); };
-      mic.onclick = () => {
-        if (listening) { try { rec.stop(); } catch (e) {} return; }
-        try {
-          rec = new Rec(); rec.lang = navigator.language || "en-US"; rec.interimResults = true; rec.continuous = true;
-          base = ta.value.trim();
-          rec.onresult = (ev) => {
-            let txt = "";
-            for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
-            ta.value = (base ? base + "\n" : "") + txt;
-          };
-          rec.onend = stopUI; rec.onerror = stopUI;
-          rec.start(); listening = true; mic.textContent = "⏹ Stop"; mic.classList.add("accent", "mic-on"); ta.focus();
-        } catch (e) { alert("Voice input isn't available in this browser. Try Chrome."); stopUI(); }
-      };
-    }
+    wireVoiceMic($("#qcMic"), ta);
     $("#qcList").onclick = () => { const t = ta.value.trim(); if (!t) return; closeSettings(); createChecklistFromText(t); };
     $("#qcNote").onclick = () => { const t = ta.value.trim(); if (!t) return; closeSettings(); createNoteFromText(t); };
     ta.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); $("#qcList").click(); } });

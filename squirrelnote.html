@@ -153,6 +153,16 @@
   .rchip:hover { color: var(--rail-fg); }
   .rchip:active { transform: scale(0.94); }
   .rchip.active { background: var(--accent); color: var(--accent-contrast); }
+  .tag-manage { color: var(--rail-muted); font-size: 0.66rem; font-weight: 700; padding: 0.1rem 0.35rem; border-radius: 6px; letter-spacing: 0.02em; }
+  .tag-manage:hover { color: var(--rail-fg); background: var(--rail-hover); }
+  .tagmgr-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 320px; overflow-y: auto; }
+  .tagmgr-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.1rem; }
+  .tagmgr-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .tagmgr-name { flex: 1; background: var(--app-bg); border: 1px solid var(--border); border-radius: 9px; padding: 0.32rem 0.55rem; font-size: 0.85rem; color: var(--fg); min-width: 0; }
+  .tagmgr-name:focus { outline: none; border-color: var(--accent); }
+  .tagmgr-count { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 1.4em; text-align: right; }
+  .tagmgr-del { color: var(--muted); font-size: 0.8rem; padding: 0.25rem 0.4rem; }
+  .tagmgr-del:hover { color: #e5484d; }
   .railfoot { position: relative; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.55rem; display: flex; flex-direction: column; gap: 0.12rem; }
 
   /* ---------- List column -------------------------------------------------- */
@@ -1145,6 +1155,50 @@
     setTimeout(() => ta.focus(), 40);
   }
 
+  // ---- tag manager: rename (merge) or delete a tag everywhere at once ----
+  function openTagManager() {
+    const root = $("#modalRoot");
+    const draw = () => {
+      const counts = tagCounts(), tags = allTags();
+      root.innerHTML = `<div class="scrim" id="tmScrim"></div>
+        <div class="qc" style="max-width:440px">
+          <h2 style="justify-content:center">🏷️ Manage tags</h2>
+          ${tags.length ? `<div class="tagmgr-list">${tags.map((t) => `
+            <div class="tagmgr-row">
+              <span class="tagmgr-dot" style="background:${tagColor(t)}"></span>
+              <input class="tagmgr-name" value="${esc(t)}" data-oldtag="${esc(t)}" />
+              <span class="tagmgr-count">${counts.get(t) || 0}</span>
+              <button class="tagmgr-del" data-tagdel="${esc(t)}" title="Delete tag everywhere">🗑</button>
+            </div>`).join("")}</div>`
+            : `<p class="fineprint" style="text-align:center;margin:0">No tags yet — add one from a note's #tag field.</p>`}
+          <p class="fineprint" style="margin:0;text-align:center">Rename a tag to relabel it everywhere. Renaming it to match another tag merges the two.</p>
+          <div class="qc-row"><span style="flex:1"></span><button class="btn-sm" id="tmClose">Done</button></div>
+        </div>`;
+      $("#tmScrim").onclick = closeSettings;
+      $("#tmClose").onclick = closeSettings;
+      root.querySelectorAll(".tagmgr-name").forEach((inp) => {
+        const commit = () => {
+          const old = inp.dataset.oldtag;
+          const val = inp.value.trim().toLowerCase().replace(/^#/, "");
+          if (!val || val === old) { inp.value = old; return; }
+          const merging = allTags().includes(val);
+          renameTag(old, val);
+          toast(merging ? `Merged into #${val}` : `Renamed to #${val}`);
+          renderNav(); renderList(); renderEditor(); draw();
+        };
+        inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+        inp.addEventListener("blur", commit);
+      });
+      root.querySelectorAll("[data-tagdel]").forEach((el) => el.onclick = () => {
+        const t = el.dataset.tagdel;
+        if (!confirm(`Delete tag #${t}? It's removed from every note (the notes themselves are kept).`)) return;
+        deleteTagEverywhere(t);
+        renderNav(); renderList(); renderEditor(); draw();
+      });
+    };
+    draw();
+  }
+
   // ---- focus mode: one task at a time, with a 5-minute body-double timer ----
   let focusTimer = null, focusRemain = 0;
   function stopFocusTimer() { if (focusTimer) { clearInterval(focusTimer); focusTimer = null; } }
@@ -1240,6 +1294,27 @@
   function activeNotes() { return notes.filter((n) => !n.deleted); }
   function folders() { return [...new Set(activeNotes().map((n) => n.folder).filter(Boolean))].sort(); }
   function allTags() { const s = new Set(); activeNotes().forEach((n) => (n.tags || []).forEach((t) => s.add(t))); return [...s].sort(); }
+  function tagCounts() { const m = new Map(); activeNotes().forEach((n) => (n.tags || []).forEach((t) => m.set(t, (m.get(t) || 0) + 1))); return m; }
+  // Rename a tag on every note that has it (including trashed ones, so a
+  // restore later doesn't bring back a stale tag name). Renaming to a name
+  // that already exists on a note simply merges into it (Set dedupes).
+  function renameTag(oldTag, newTagRaw) {
+    const newTag = (newTagRaw || "").trim().toLowerCase().replace(/^#/, "");
+    if (!newTag || newTag === oldTag) return false;
+    let changed = false;
+    notes.forEach((n) => {
+      if (!n.tags || !n.tags.includes(oldTag)) return;
+      n.tags = [...new Set(n.tags.filter((t) => t !== oldTag).concat(newTag))];
+      touch(n); changed = true;
+    });
+    if (changed) persist();
+    return true;
+  }
+  function deleteTagEverywhere(tag) {
+    let changed = false;
+    notes.forEach((n) => { if (n.tags && n.tags.includes(tag)) { n.tags = n.tags.filter((t) => t !== tag); touch(n); changed = true; } });
+    if (changed) persist();
+  }
 
   function visibleNotes() {
     const q = filter.query.trim().toLowerCase();
@@ -1349,7 +1424,7 @@
         html += `<button class="nav-item ${filter.folder === f && !filter.trash ? "active" : ""}" data-kind="folder" data-val="${esc(f)}"><span>📁 ${esc(f)}</span><span class="count">${c}</span></button>`; });
     }
     if (ts.length) {
-      html += `<div class="nav-label">Tags</div><div class="tagrow">`;
+      html += `<div class="nav-label" style="display:flex;align-items:center;justify-content:space-between;padding-right:0.5rem"><span>Tags</span><button class="tag-manage" id="tagManageBtn" title="Manage tags">✎ manage</button></div><div class="tagrow">`;
       ts.forEach((t) => html += `<button class="rchip ${filter.tag === t && !filter.trash ? "active" : ""}" data-tag="${esc(t)}" style="${filter.tag === t ? `background:${tagColor(t)};color:#fff` : `background:color-mix(in srgb, ${tagColor(t)} 30%, transparent);color:var(--rail-fg)`}">#${esc(t)}</button>`);
       html += `</div>`;
     }
@@ -1362,6 +1437,7 @@
     nav.innerHTML = html;
     nav.querySelectorAll("[data-tpl]").forEach((el) => el.addEventListener("click", () => { const tp = templates.find((t) => t.id === el.dataset.tpl); if (tp) newFromTemplate(tp); }));
     const nr = nav.querySelector("#newRoutine"); if (nr) nr.onclick = () => { openRoutineCreator(); if (window.innerWidth <= 940) $("#app").classList.remove("rail-open"); };
+    const tmb = nav.querySelector("#tagManageBtn"); if (tmb) tmb.onclick = (e) => { e.stopPropagation(); openTagManager(); };
     nav.querySelectorAll("[data-tpldel]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); if (confirm("Delete this routine template? (Notes already created from it stay.)")) deleteTemplate(el.dataset.tpldel); }));
     nav.querySelectorAll("[data-kind]").forEach((el) => el.addEventListener("click", () => {
       const k = el.dataset.kind;

@@ -512,60 +512,90 @@
   #tabBar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 37; display: flex;
     background: var(--surface); border-top: 1px solid var(--border);
     padding: 0.3rem 0.6rem calc(0.3rem + env(safe-area-inset-bottom)); box-shadow: 0 -8px 22px -14px rgba(0,0,0,0.3); }
-  .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.08rem; padding: 0.3rem 0.4rem;
-    border-radius: 12px; color: var(--muted); transition: color 0.14s, background 0.14s, transform 0.12s var(--ease-spring); }
-  .tab-btn .tab-ic { font-size: 1.35rem; line-height: 1; }
+  .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.15rem; padding: 0.22rem 0.4rem;
+    border-radius: 12px; color: var(--muted); transition: color 0.14s, background 0.14s, transform 0.12s var(--ease-spring); position: relative; }
+  .tab-btn .tab-ic { font-size: 1.3rem; line-height: 1; }
   .tab-btn .tab-lbl { font-family: var(--round); font-size: 0.64rem; font-weight: 700; }
   .tab-btn.on { color: var(--accent); }
   .tab-btn:active { transform: scale(0.92); }
-  .tab-btn .tab-dot { position: absolute; margin-left: 1.1rem; margin-top: -0.1rem; width: 8px; height: 8px; border-radius: 50%; background: #8b93d8; box-shadow: 0 0 0 2px var(--surface); }
+  .tab-avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-size: 1.05rem;
+    background: var(--surface-2); border: 2px solid transparent; transition: border-color 0.2s, box-shadow 0.2s; }
+  .tab-btn.on .tab-avatar { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .tab-btn .tab-dot { position: absolute; top: -1px; right: calc(50% - 19px); width: 8px; height: 8px; border-radius: 50%; background: #8b93d8; box-shadow: 0 0 0 2px var(--surface); }
 
-  /* ---------- Pet page --------------------------------------------------- */
-  #petPage { display: none; position: fixed; inset: 0; flex-direction: column; background: var(--app-bg); }
-  .pet-scene { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.55rem;
-    padding: 1.5rem 1.5rem calc(4.6rem + env(safe-area-inset-bottom)); overflow-y: auto; position: relative;
-    background: radial-gradient(ellipse at 50% 18%, color-mix(in srgb, var(--accent) 18%, var(--app-bg)), var(--app-bg) 72%);
-    transition: background 0.7s ease; }
-  .pet-scene[data-mood="asleep"] { background: radial-gradient(ellipse at 50% 14%, #2c2d57, #12121f 75%); }
-  .pet-stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 0.7s; }
-  .pet-scene[data-mood="asleep"] .pet-stars { opacity: 1; }
-  .pet-star { position: absolute; width: 3px; height: 3px; background: #fff; border-radius: 50%; animation: twinkle 2.6s ease-in-out infinite; }
-  @keyframes twinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.9; } }
-  .pet-aura { position: absolute; width: 270px; height: 270px; border-radius: 50%; pointer-events: none;
-    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 38%, transparent), transparent 70%);
-    animation: auraPulse 3.2s ease-in-out infinite; }
-  .pet-scene[data-mood="asleep"] .pet-aura { background: radial-gradient(circle, rgba(150,165,255,0.4), transparent 70%); animation-duration: 5s; }
-  @keyframes auraPulse { 0%, 100% { transform: scale(0.92); opacity: 0.6; } 50% { transform: scale(1.08); opacity: 1; } }
-  .pet-svg { width: 190px; height: 190px; position: relative; z-index: 2; }
-  .pet-scene[data-mood="awake"] .pet-svg, .pet-scene[data-mood="new"] .pet-svg { animation: petBob 3s ease-in-out infinite; }
+  /* ---------- Pet page: a fixed cosmic-night scene, independent of the -----
+     app's own light/dark theme (this is the pet's "place", not a themed
+     screen) ----------------------------------------------------------------- */
+  #petPage { display: none; position: fixed; inset: 0; flex-direction: column; background: #14101f; }
+  .pet-scene { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
+    padding: 2rem 1.2rem calc(4.6rem + env(safe-area-inset-bottom)); overflow-y: auto; position: relative;
+    background:
+      radial-gradient(ellipse 70% 40% at 18% 88%, rgba(60,95,72,0.32), transparent 60%),
+      radial-gradient(ellipse 65% 55% at 82% 6%, rgba(96,72,148,0.4), transparent 62%),
+      linear-gradient(178deg, #211a3c 0%, #271f42 45%, #171129 100%); }
+  .pet-branch { position: absolute; top: 0; right: 0; width: 130px; height: 130px; pointer-events: none; opacity: 0.92; z-index: 1; }
+  .pet-stars { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 1; }
+  .pet-star { position: absolute; width: 2.5px; height: 2.5px; background: #fff; border-radius: 50%; animation: twinkle 3s ease-in-out infinite; }
+  @keyframes twinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 0.85; } }
+  .pet-glow { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); width: 300px; height: 300px; pointer-events: none; z-index: 1; }
+  .pet-glow span { position: absolute; inset: 0; border-radius: 50%; filter: blur(14px);
+    background: radial-gradient(circle, rgba(255,196,120,0.5), transparent 70%); animation: bokeh 4.5s ease-in-out infinite; }
+  .pet-scene[data-mood="asleep"] .pet-glow span { background: radial-gradient(circle, rgba(150,165,255,0.4), transparent 70%); }
+  @keyframes bokeh { 0%, 100% { transform: scale(0.94); opacity: 0.7; } 50% { transform: scale(1.06); opacity: 1; } }
+  .pet-svg-wrap { position: relative; z-index: 2; margin-top: 0.3rem; }
+  .pet-svg { width: 205px; height: 205px; display: block; }
+  .pet-scene[data-mood="awake"] .pet-svg, .pet-scene[data-mood="new"] .pet-svg { animation: petBob 3.2s ease-in-out infinite; }
   .pet-scene[data-mood="asleep"] .pet-svg { animation: petBreathe 4s ease-in-out infinite; }
-  @keyframes petBob { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-7px) rotate(1.5deg); } }
-  @keyframes petBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.03); } }
-  .pet-scene.stir .pet-svg { animation: petStir 0.6s var(--ease-spring); }
+  @keyframes petBob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-6px) rotate(1deg); } }
+  @keyframes petBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.025); } }
+  .pet-scene.stir .pet-svg { animation: petStir 0.6s var(--ease-spring) !important; }
   @keyframes petStir { 0%, 100% { transform: rotate(0deg); } 30% { transform: rotate(-4deg); } 60% { transform: rotate(3deg); } }
-  .pet-fur { fill: color-mix(in srgb, var(--accent) 58%, #caa06a); transition: fill 0.7s; }
-  .pet-scene[data-mood="asleep"] .pet-fur { fill: #6a6f9c; }
-  .pet-belly-fill { fill: color-mix(in srgb, var(--accent) 18%, #f7ecd9); transition: fill 0.7s; }
-  .pet-scene[data-mood="asleep"] .pet-belly-fill { fill: #9aa1c9; }
-  .pet-cheek-fill { fill: #f0a3a3; opacity: 0.65; }
-  .pet-eye-fill { fill: #2a2018; }
-  .pet-eye-line { stroke: #2a2018; stroke-width: 3.2; stroke-linecap: round; fill: none; }
-  .pet-scene[data-mood="asleep"] .pet-eye-line { stroke: #d8dcff; }
+  .pet-fur { fill: #c58f52; }
+  .pet-fur-dark { fill: #a8703a; }
+  .pet-belly-fill { fill: #f3e3c8; }
+  .pet-cheek-fill { fill: #f0a3a3; opacity: 0.55; }
+  .pet-eye-fill { fill: #2a1d12; }
+  .pet-eye-line { stroke: #2a1d12; stroke-width: 3.4; stroke-linecap: round; fill: none; }
   .pet-nose-fill { fill: #6b4a2f; }
-  .pet-acorn-fill { fill: var(--accent); }
-  .pet-zzz { position: absolute; top: 28%; left: 62%; font-family: var(--round); font-weight: 800; color: #d8dcff; font-size: 1.5rem; opacity: 0; z-index: 3; pointer-events: none; }
+  .pet-whisker { stroke: rgba(255,255,255,0.55); stroke-width: 1.3; fill: none; stroke-linecap: round; }
+  .pet-twig { stroke: #8a6440; stroke-width: 4.5; stroke-linecap: round; fill: none; opacity: 0.9; }
+  .pet-twig-dark { stroke: #5c3c22; stroke-width: 4.5; stroke-linecap: round; fill: none; opacity: 0.85; }
+  .pet-paper { fill: #f7f1e2; stroke: #d8cba9; stroke-width: 1; }
+  .pet-paper-line { stroke: #b9ac8a; stroke-width: 1.6; stroke-linecap: round; }
+  .pet-acorn-fill { fill: #c1782f; }
+  .pet-zzz { position: absolute; top: 12%; right: 18%; font-family: var(--round); font-weight: 800; color: #d8dcff; font-size: 1.5rem; opacity: 0; z-index: 3; pointer-events: none; }
   .pet-scene[data-mood="asleep"] .pet-zzz.z1 { animation: zzzFloat 3.2s ease-in 0s infinite; }
-  .pet-scene[data-mood="asleep"] .pet-zzz.z2 { animation: zzzFloat 3.2s ease-in 1.5s infinite; font-size: 1.1rem; left: 68%; top: 24%; }
-  @keyframes zzzFloat { 0% { opacity: 0; transform: translate(0, 0) scale(0.7); } 25% { opacity: 0.85; } 100% { opacity: 0; transform: translate(20px, -50px) scale(1.15); } }
-  .pet-namewrap { z-index: 2; display: flex; align-items: center; gap: 0.3rem; }
+  .pet-scene[data-mood="asleep"] .pet-zzz.z2 { animation: zzzFloat 3.2s ease-in 1.5s infinite; font-size: 1.1rem; right: 26%; top: 8%; }
+  @keyframes zzzFloat { 0% { opacity: 0; transform: translate(0, 0) scale(0.7); } 25% { opacity: 0.85; } 100% { opacity: 0; transform: translate(20px, -46px) scale(1.15); } }
+  .pet-namewrap { z-index: 2; margin-top: 0.2rem; }
   .pet-name { background: none; border: none; border-bottom: 1.5px dashed transparent; text-align: center; font-family: var(--serif);
-    font-weight: 700; font-size: 1.4rem; color: var(--fg); width: 11ch; padding: 0.1rem 0; }
-  .pet-name:focus { outline: none; border-color: var(--accent); }
-  .pet-mood-label { font-family: var(--round); font-weight: 700; font-size: 0.92rem; color: var(--muted); z-index: 2; text-align: center; }
-  .pet-msg { font-size: 0.88rem; color: var(--muted); text-align: center; max-width: 24rem; line-height: 1.55; z-index: 2; }
-  .pet-stat-row { display: flex; gap: 0.55rem; z-index: 2; flex-wrap: wrap; justify-content: center; }
-  .pet-stat-pill { background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 0.3rem 0.75rem; font-size: 0.76rem; font-weight: 700; color: var(--fg); box-shadow: var(--shadow-sm); }
-  .pet-actions { z-index: 2; margin-top: 0.15rem; }
+    font-weight: 700; font-size: 1.55rem; color: #f6ecd8; width: 11ch; padding: 0.1rem 0; }
+  .pet-name:focus { outline: none; border-color: #f0b86e; }
+  .pet-mood-label { font-family: var(--serif); font-style: italic; font-weight: 500; font-size: 0.95rem; color: #c7c1de; z-index: 2; text-align: center; }
+  .pet-stat-row { display: flex; gap: 0.55rem; z-index: 2; flex-wrap: wrap; justify-content: center; margin-top: 0.15rem; }
+  .pet-stat-pill { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 99px; padding: 0.3rem 0.75rem; font-size: 0.76rem; font-weight: 700; color: #f0ead9; }
+  .pet-action-btn { z-index: 2; margin-top: 0.35rem; border: none; border-radius: 99px; padding: 0.75rem 1.7rem; font-family: var(--round); font-weight: 800; font-size: 0.98rem;
+    background: linear-gradient(135deg, #f6c98a, #e08a4a); color: #4a2f14;
+    box-shadow: 0 10px 26px -10px rgba(224,138,74,0.65), inset 0 0 0 1px rgba(255,255,255,0.2);
+    display: flex; align-items: center; gap: 0.5rem; transition: transform 0.15s var(--ease-spring); }
+  .pet-action-btn:active { transform: scale(0.96); }
+  .pet-msg { font-size: 0.86rem; color: #a9a3c0; text-align: center; max-width: 24rem; line-height: 1.5; z-index: 2; margin-top: 0.5rem; }
+  .pet-tasks { z-index: 2; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 0.55rem; margin-top: 1rem; }
+  .pet-tasks-title { color: #c7c1de; font-family: var(--round); font-weight: 700; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; padding: 0 0.2rem; }
+  .pet-task-row { display: flex; align-items: flex-start; gap: 0.65rem; background: rgba(255,255,255,0.055); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 16px; padding: 0.7rem 0.8rem; box-shadow: 0 0 22px -13px rgba(255,196,120,0.4); }
+  .pet-task-check { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,0.08); border: 1.5px solid rgba(255,255,255,0.2);
+    display: grid; place-items: center; font-size: 1rem; flex-shrink: 0; color: #f3e3c8; font-weight: 800; transition: background 0.15s, border-color 0.15s, transform 0.12s var(--ease-spring); }
+  .pet-task-check:active { transform: scale(0.88); }
+  .pet-task-check.done { background: color-mix(in srgb, #7fb56e 55%, transparent); border-color: #7fb56e; }
+  .pet-task-body { flex: 1; min-width: 0; cursor: pointer; }
+  .pet-task-top { display: flex; align-items: center; gap: 0.4rem; }
+  .pet-task-title { color: #f3e3c8; font-weight: 700; font-size: 0.9rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pet-task-tag { font-size: 0.64rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 99px; white-space: nowrap; }
+  .pet-task-tag.done { background: rgba(127,181,110,0.28); color: #a8e0a0; }
+  .pet-task-tag.pending { background: rgba(255,196,120,0.18); color: #f0c98a; }
+  .pet-task-desc { color: #a9a3c0; font-size: 0.76rem; line-height: 1.4; margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pet-empty-tasks { color: #a9a3c0; font-size: 0.85rem; text-align: center; padding: 0.6rem; background: rgba(255,255,255,0.04); border-radius: 14px; }
 
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
@@ -658,7 +688,7 @@
 <div id="petPage"></div>
 <nav id="tabBar">
   <button class="tab-btn on" id="tabNotes" data-page="notes"><span class="tab-ic">📝</span><span class="tab-lbl">Notes</span></button>
-  <button class="tab-btn" id="tabPet" data-page="pet" style="position:relative"><span class="tab-ic">🐿️</span><span class="tab-lbl">Pet</span></button>
+  <button class="tab-btn" id="tabPet" data-page="pet"><span class="tab-avatar">🐿️</span><span class="tab-lbl">Pet</span></button>
 </nav>
 <button id="fab" aria-label="Quick capture" title="Quick capture">＋</button>
 <div id="modalRoot"></div>
@@ -1112,58 +1142,136 @@
     "Curled up for now. Come find me anytime.",
     "Taking a little nap. Nothing's wrong.",
   ];
-  function petMoodLabel(state) {
+  function petMoodLabel(state, name) {
     if (state === "new") return "Just woke up — nice to meet you! 🌰";
     if (state === "awake") return "Wide awake and glad you're here";
-    return "Fast asleep, all cozy";
+    return `${name} is resting`;
   }
+  // A tree branch with a couple of leaf clusters, tucked in the top-right
+  // corner — present in every mood, same as the reference art.
+  function petBranchSVG() {
+    return `<svg class="pet-branch" viewBox="0 0 140 140" aria-hidden="true">
+      <path d="M140,0 C120,10 100,25 85,45" stroke="#4a3520" stroke-width="7" fill="none" stroke-linecap="round" />
+      <path d="M112,6 C102,17 93,28 88,39" stroke="#4a3520" stroke-width="4" fill="none" stroke-linecap="round" />
+      <g fill="#2f5233">
+        <ellipse cx="122" cy="13" rx="20" ry="14" transform="rotate(-25 122 13)" />
+        <ellipse cx="99" cy="5" rx="16" ry="11" transform="rotate(10 99 5)" />
+        <ellipse cx="89" cy="30" rx="14" ry="10" transform="rotate(-15 89 30)" />
+        <ellipse cx="131" cy="36" rx="15" ry="10" transform="rotate(20 131 36)" />
+      </g>
+      <g fill="#3a6642" opacity="0.75">
+        <ellipse cx="116" cy="17" rx="10" ry="7" transform="rotate(-25 116 17)" />
+        <ellipse cx="94" cy="11" rx="8" ry="6" transform="rotate(10 94 11)" />
+      </g>
+    </svg>`;
+  }
+  // The squirrel sits in a nest woven from twigs, tucked in among a few
+  // scraps of paper — ties the mascot back to the notes theme directly.
   function petSVG(mood) {
     const asleep = mood === "asleep";
     const eyes = asleep
-      ? `<path class="pet-eye-line" d="M78,90 Q85,96 92,90" /><path class="pet-eye-line" d="M108,90 Q115,96 122,90" />`
-      : `<circle class="pet-eye-fill" cx="85" cy="90" r="5" /><circle class="pet-eye-fill" cx="115" cy="90" r="5" />`;
-    const acorn = asleep ? "" : `<g transform="translate(84,170)"><path class="pet-acorn-fill" d="M8,0 a8,8 0 0 1 16,0 c0,7.5 -8,15 -8,15 s-8,-7.5 -8,-15 z" /><path d="M11,0 q5,-4.5 10,0" fill="none" stroke="#5a3d24" stroke-width="1.4" /></g>`;
-    return `<svg class="pet-svg" viewBox="0 0 200 200" aria-hidden="true">
-      <path class="pet-fur" d="M168,142 C224,120 222,44 166,22 C202,60 194,108 148,128 Z" />
-      <ellipse class="pet-fur" cx="100" cy="140" rx="54" ry="50" />
-      <ellipse class="pet-belly-fill" cx="100" cy="150" rx="30" ry="28" />
-      <circle class="pet-fur" cx="70" cy="72" r="13" />
-      <circle class="pet-fur" cx="130" cy="72" r="13" />
-      <circle class="pet-fur" cx="100" cy="92" r="44" />
-      <ellipse class="pet-cheek-fill" cx="76" cy="102" rx="9" ry="6" />
-      <ellipse class="pet-cheek-fill" cx="124" cy="102" rx="9" ry="6" />
-      ${eyes}
-      <ellipse class="pet-nose-fill" cx="100" cy="105" rx="5.5" ry="4" />
-      ${acorn}
+      ? `<path class="pet-eye-line" d="M79,89 Q86,95 93,89" /><path class="pet-eye-line" d="M107,89 Q114,95 121,89" />`
+      : `<circle class="pet-eye-fill" cx="86" cy="88" r="5" /><circle class="pet-eye-fill" cx="122" cy="88" r="5" />`;
+    const acorn = asleep ? "" : `<g transform="translate(92,182)"><path class="pet-acorn-fill" d="M8,0 a8,8 0 0 1 16,0 c0,7.5 -8,15 -8,15 s-8,-7.5 -8,-15 z" /><path d="M11,0 q5,-4.5 10,0" fill="none" stroke="#5a3d24" stroke-width="1.4" /></g>`;
+    return `<svg class="pet-svg" viewBox="0 0 208 220" aria-hidden="true">
+      <g transform="translate(4,6)">
+        <path class="pet-twig-dark" d="M8,175 Q45,153 100,156 Q155,153 192,178" />
+        <path class="pet-twig" d="M3,190 Q45,166 100,168 Q155,166 197,192" />
+        <path class="pet-twig-dark" d="M0,205 Q45,180 100,182 Q155,180 200,207" />
+        <path class="pet-twig" d="M12,160 Q48,144 100,146 Q152,144 188,162" />
+        <path class="pet-twig" d="M6,182 Q-3,193 4,205" />
+        <path class="pet-twig-dark" d="M194,184 Q203,195 196,207" />
+        <g transform="translate(30,128) rotate(-16)"><rect class="pet-paper" x="0" y="0" width="32" height="42" rx="3" /><line class="pet-paper-line" x1="6" y1="10" x2="26" y2="10" /><line class="pet-paper-line" x1="6" y1="18" x2="22" y2="18" /><line class="pet-paper-line" x1="6" y1="26" x2="24" y2="26" /></g>
+        <g transform="translate(146,124) rotate(14)"><rect class="pet-paper" x="0" y="0" width="30" height="40" rx="3" /><line class="pet-paper-line" x1="5" y1="9" x2="24" y2="9" /><line class="pet-paper-line" x1="5" y1="17" x2="20" y2="17" /></g>
+        <ellipse class="pet-fur" cx="102" cy="148" rx="52" ry="46" />
+        <path class="pet-fur" d="M128,178 C174,180 200,144 196,100 C193,60 166,36 140,50 C160,58 176,82 170,112 C166,140 150,158 128,166 Z" />
+        <path class="pet-fur-dark" d="M144,86 C158,78 168,90 165,106 C162,122 150,134 138,140 C150,124 152,104 144,86 Z" />
+        <ellipse class="pet-belly-fill" cx="102" cy="158" rx="30" ry="27" />
+        <ellipse class="pet-fur" cx="80" cy="188" rx="12" ry="9" />
+        <ellipse class="pet-fur" cx="124" cy="188" rx="12" ry="9" />
+        <circle class="pet-fur" cx="74" cy="76" r="13" />
+        <circle class="pet-fur" cx="130" cy="76" r="13" />
+        <circle class="pet-fur-dark" cx="74" cy="78" r="7" />
+        <circle class="pet-fur-dark" cx="130" cy="78" r="7" />
+        <circle class="pet-fur" cx="102" cy="98" r="42" />
+        <path class="pet-whisker" d="M64,104 Q47,100 37,102" /><path class="pet-whisker" d="M64,110 Q47,111 37,114" />
+        <path class="pet-whisker" d="M140,104 Q157,100 167,102" /><path class="pet-whisker" d="M140,110 Q157,111 167,114" />
+        <ellipse class="pet-cheek-fill" cx="79" cy="108" rx="9" ry="6" />
+        <ellipse class="pet-cheek-fill" cx="125" cy="108" rx="9" ry="6" />
+        ${eyes}
+        <ellipse class="pet-nose-fill" cx="102" cy="110" rx="5.5" ry="4" />
+        ${acorn}
+      </g>
     </svg>`;
+  }
+  // ---- today's routines, shown right on the Pet page ----
+  function petTodaysRoutines() { return notes.filter((n) => n.kind === "checklist" && n.repeat && n.repeat !== "none" && !n.deleted); }
+  function petTaskRowHTML(n) {
+    const items = n.items || [];
+    const done = items.length > 0 && items.every(itemDone);
+    const doneCount = items.filter(itemDone).length;
+    let m = null; try { m = (n.title || "").match(/^(\p{Extended_Pictographic}️?)\s*/u); } catch (e) {}
+    const icon = m ? m[1] : "🔁";
+    const title = m ? n.title.slice(m[0].length).trim() : (n.title || "Untitled");
+    const desc = items.length ? items.slice(0, 2).map((i) => esc(i.text || "…")).join(" · ") + (items.length > 2 ? "…" : "") : "No steps yet";
+    const tag = done ? "Done today" : (items.length ? doneCount + "/" + items.length : "To do");
+    return `<div class="pet-task-row">
+      <button class="pet-task-check ${done ? "done" : ""}" data-routineid="${n.id}" aria-label="Mark today done">${done ? "✓" : ""}</button>
+      <div class="pet-task-body" data-opennote="${n.id}">
+        <div class="pet-task-top"><span class="pet-task-title">${icon} ${esc(title)}</span><span class="pet-task-tag ${done ? "done" : "pending"}">${tag}</span></div>
+        <div class="pet-task-desc">${desc}</div>
+      </div>
+    </div>`;
+  }
+  function petToggleRoutine(id) {
+    const n = notes.find((x) => x.id === id); if (!n || !(n.items || []).length) return;
+    const wasAllDone = n.items.every(itemDone);
+    const nowDone = !wasAllDone;
+    n.items.forEach((it) => { it.checked = nowDone; if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = nowDone)); });
+    touch(n); saveSoon();
+    if (nowDone) bumpStat();
+    markRoutineDay(n);
+    if (nowDone) { playChime(); celebrate(); }
+    refreshCard(n.id);
+    renderPet();
   }
   function renderPet() {
     const page = $("#petPage"); if (!page) return;
     const state = petState();
+    const name = prefs.petName || "Chip";
     const dayHash = tagHash(todayKey());
     const msg = state === "asleep" ? PET_ASLEEP_MSGS[dayHash % PET_ASLEEP_MSGS.length] : PET_AWAKE_MSGS[dayHash % PET_AWAKE_MSGS.length];
-    const stars = state === "asleep"
-      ? Array.from({ length: 14 }, () => `<span class="pet-star" style="left:${Math.floor(Math.random() * 100)}%;top:${Math.floor(Math.random() * 55)}%;animation-delay:${(Math.random() * 2.6).toFixed(2)}s"></span>`).join("")
-      : "";
+    const stars = Array.from({ length: 16 }, () => `<span class="pet-star" style="left:${Math.floor(Math.random() * 100)}%;top:${Math.floor(Math.random() * 55)}%;animation-delay:${(Math.random() * 2.6).toFixed(2)}s"></span>`).join("");
+    const routines = petTodaysRoutines();
+    const tasksHTML = `<div class="pet-tasks"><div class="pet-tasks-title">Today's routines</div>${
+      routines.length ? routines.map(petTaskRowHTML).join("") : `<div class="pet-empty-tasks">No routines yet — add one from ☰ → Routines.</div>`
+    }</div>`;
     page.innerHTML = `
       <div class="pet-scene" data-mood="${state}" id="petScene">
         <div class="pet-stars">${stars}</div>
-        <div class="pet-aura"></div>
-        ${petSVG(state)}
-        ${state === "asleep" ? `<span class="pet-zzz z1">z</span><span class="pet-zzz z2">z</span>` : ""}
-        <div class="pet-namewrap"><input class="pet-name" id="petNameInput" value="${esc(prefs.petName || "Chip")}" maxlength="18" aria-label="Pet's name" /></div>
-        <div class="pet-mood-label">${petMoodLabel(state)}</div>
-        <div class="pet-msg">${esc(msg)}</div>
+        ${petBranchSVG()}
+        <div class="pet-glow"><span></span></div>
+        <div class="pet-svg-wrap">${petSVG(state)}${state === "asleep" ? `<span class="pet-zzz z1">z</span><span class="pet-zzz z2">z</span>` : ""}</div>
+        <div class="pet-namewrap"><input class="pet-name" id="petNameInput" value="${esc(name)}" maxlength="18" aria-label="Pet's name" /></div>
+        <div class="pet-mood-label">${petMoodLabel(state, esc(name))}</div>
         <div class="pet-stat-row"><span class="pet-stat-pill">🔥 ${streakCount()}-day streak</span><span class="pet-stat-pill">⭐ Lv ${levelFor(stats.xp || 0)}</span></div>
-        <div class="pet-actions">${state === "asleep" ? `<button class="btn-sm accent" id="petGoBtn">📝 Go find something to do</button>` : `<button class="btn-sm" id="petPetBtn">🤚 Give a pat</button>`}</div>
+        <button class="pet-action-btn" id="petPetBtn">${state === "asleep" ? `🤫 Let ${esc(name)} rest` : "👋 Give a pat"}</button>
+        <div class="pet-msg">${esc(msg)}</div>
+        ${tasksHTML}
       </div>`;
     const scene = $("#petScene");
     const stir = () => { scene.classList.add("stir"); setTimeout(() => scene.classList.remove("stir"), 650); };
-    scene.addEventListener("click", (e) => { if (e.target.closest("#petNameInput, #petGoBtn, #petPetBtn")) return; stir(); });
+    scene.addEventListener("click", (e) => {
+      if (e.target.closest("#petNameInput, #petPetBtn, [data-routineid], [data-opennote]")) return;
+      stir();
+    });
     const nameInput = $("#petNameInput");
-    if (nameInput) nameInput.addEventListener("change", () => { prefs.petName = nameInput.value.trim() || "Chip"; savePrefs(); });
-    const goBtn = $("#petGoBtn"); if (goBtn) goBtn.onclick = () => showPage("notes");
+    if (nameInput) nameInput.addEventListener("change", () => { prefs.petName = nameInput.value.trim() || "Chip"; savePrefs(); renderPet(); });
     const petBtn = $("#petPetBtn"); if (petBtn) petBtn.onclick = () => { stir(); playChime(); };
+    scene.querySelectorAll("[data-routineid]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); petToggleRoutine(el.dataset.routineid); }));
+    scene.querySelectorAll("[data-opennote]").forEach((el) => el.addEventListener("click", (e) => {
+      e.stopPropagation(); selectedId = el.dataset.opennote; showPage("notes"); renderList(); renderEditor(); setSelectedFlag();
+    }));
   }
   // Notes and Pet are two full-screen pages; only one is ever mounted, so
   // there's no scenario where completing a task happens while Pet is showing

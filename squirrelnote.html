@@ -1803,6 +1803,11 @@
   }
 
   // ---- quick capture (brain dump -> checklist or note) ----
+  // Friendly fallback title when there's no subject and nothing to derive one from.
+  function dateTimeLabel() {
+    const d = new Date();
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
   function parseCapture(text) {
     let title = null;
     let body = text;
@@ -1818,18 +1823,29 @@
     }
     // Split on newlines AND commas — natural for brain dumps.
     const items = body.split(/[\n,]+/).map((l) => l.replace(/^[-*•\[\]xX\d.)\s]+/, "").trim()).filter(Boolean);
-    return { title: title || "Quick list", items };
+    return { title, items };
   }
-  function createChecklistFromText(text) {
-    const { title, items } = parseCapture(text);
+  // `subject` is the explicit Subject-line field from Quick Capture. It wins if
+  // filled; otherwise fall back to a "Name: ..." style title in the text itself
+  // (existing shortcut), and finally to the date & time.
+  function createChecklistFromText(text, subject) {
+    const subj = (subject || "").trim();
+    let title, items;
+    if (subj) { title = subj; items = text.split(/[\n,]+/).map((l) => l.replace(/^[-*•\[\]xX\d.)\s]+/, "").trim()).filter(Boolean); }
+    else { const p = parseCapture(text); title = p.title || dateTimeLabel(); items = p.items; }
     const n = { id: uid(), kind: "checklist", title, content: "", items: items.map((t) => ({ id: uid(), text: t, checked: false })),
       tags: [], folder: filter.folder || null, color: null, pinned: false, created: now(), updated: now() };
     notes.unshift(n); selectedId = n.id; showBulk = false; persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
   }
-  function createNoteFromText(text) {
-    const lines = text.split(/\r?\n/);
-    const title = (lines[0] || "").trim().slice(0, 80) || "Quick note";
-    const content = lines.length > 1 ? lines.slice(1).join("\n").trim() : "";
+  function createNoteFromText(text, subject) {
+    const subj = (subject || "").trim();
+    let title, content;
+    if (subj) { title = subj; content = text.trim(); }
+    else {
+      const lines = text.split(/\r?\n/);
+      title = (lines[0] || "").trim().slice(0, 80) || dateTimeLabel();
+      content = lines.length > 1 ? lines.slice(1).join("\n").trim() : "";
+    }
     const n = { id: uid(), kind: "note", title, content, items: [],
       tags: [], folder: filter.folder || null, color: null, pinned: false, created: now(), updated: now() };
     notes.unshift(n); selectedId = n.id; persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
@@ -1840,7 +1856,8 @@
       <div class="scrim" id="qcScrim"></div>
       <div class="qc">
         <h2>⚡ Quick capture</h2>
-        <p class="fineprint" style="margin:0">Dump it all in — one thing per line, or comma-separated. Start with a name and “:” to title the list (e.g. <em>Groceries: milk, eggs, bread</em>).</p>
+        <input class="remind-in" id="qcSubject" placeholder="Subject (optional — defaults to date &amp; time)" style="font-size:0.95rem;padding:.5rem .7rem" />
+        <p class="fineprint" style="margin:0">Dump it all in — one thing per line, or comma-separated. Or skip the subject above and start with a name and “:” to title the list (e.g. <em>Groceries: milk, eggs, bread</em>).</p>
         <textarea id="qcText" placeholder="milk, eggs, bread&#10;call the dentist&#10;pay rent"></textarea>
         <div class="qc-row">
           <button class="btn-sm" id="qcMic">🎤 Speak</button>
@@ -1851,7 +1868,7 @@
           <button class="btn-sm accent" id="qcList">Make checklist <span class="kbd">⌘↵</span></button>
         </div>
       </div>`;
-    const ta = $("#qcText");
+    const ta = $("#qcText"), subjEl = $("#qcSubject");
     if (prefill) ta.value = prefill;
     ta.focus();
     $("#qcScrim").onclick = closeSettings;
@@ -1862,8 +1879,8 @@
     };
     // Voice-to-text: dictate straight into the capture box.
     wireVoiceMic($("#qcMic"), ta);
-    $("#qcList").onclick = () => { const t = ta.value.trim(); if (!t) return; closeSettings(); createChecklistFromText(t); };
-    $("#qcNote").onclick = () => { const t = ta.value.trim(); if (!t) return; closeSettings(); createNoteFromText(t); };
+    $("#qcList").onclick = () => { const t = ta.value.trim(); if (!t) return; const s = subjEl.value; closeSettings(); createChecklistFromText(t, s); };
+    $("#qcNote").onclick = () => { const t = ta.value.trim(); if (!t) return; const s = subjEl.value; closeSettings(); createNoteFromText(t, s); };
     ta.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); $("#qcList").click(); } });
   }
 

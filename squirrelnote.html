@@ -178,7 +178,10 @@
   @keyframes pop { from { transform: scale(0.97); opacity: 0; } to { transform: scale(1); opacity: 1; } }
   .card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
   .card.sel { outline: 2.5px solid var(--accent); outline-offset: 1px; }
+  .card.dragging { z-index: 5; box-shadow: var(--shadow-lg); transition: none; }
   .card-top { display: flex; align-items: flex-start; gap: 0.4rem; }
+  .card-grip { color: color-mix(in srgb, var(--fg) 32%, transparent); cursor: grab; touch-action: none; font-size: 0.85rem; flex-shrink: 0; margin-top: 0.1rem; }
+  .card-grip:active { cursor: grabbing; }
   .card-title { flex: 1; font-family: var(--serif); font-weight: 700; font-size: 1.02rem; line-height: 1.25; word-break: break-word; }
   .card-star { font-size: 0.95rem; line-height: 1; color: color-mix(in srgb, var(--fg) 20%, transparent); flex-shrink: 0; transition: transform 0.12s var(--ease-spring); }
   .card-star:hover { transform: scale(1.3); }
@@ -237,17 +240,21 @@
   .repeat-ctl select { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0.25rem 0.4rem; font-size: 0.8rem; color: var(--fg); }
   .repeat-ctl select:focus { outline: none; border-color: var(--accent); }
   .tpl-item { display: flex; align-items: center; }
+  .tpl-item.dragging { position: relative; z-index: 5; background: var(--rail-hover); border-radius: 10px; }
   .tpl-item .tpl-new { flex: 1; }
-  .tpl-del { color: var(--rail-muted); font-size: 0.72rem; padding: 0.35rem 0.45rem; opacity: 0; transition: opacity 0.14s; }
+  .tpl-grip { color: var(--rail-muted); cursor: grab; touch-action: none; font-size: 0.8rem; padding: 0 0.25rem 0 0.1rem; opacity: 0.55; }
+  .tpl-grip:active { cursor: grabbing; }
+  .tpl-del { color: var(--rail-muted); font-size: 0.72rem; padding: 0.35rem 0.45rem; opacity: 0.55; transition: opacity 0.14s; }
   .tpl-item:hover .tpl-del { opacity: 0.7; }
   .tpl-del:hover { opacity: 1; }
   .tpl-add { color: var(--accent); font-weight: 700; }
   .tpl-add:hover { background: var(--rail-hover); color: var(--accent); }
-  .item { display: flex; align-items: center; gap: 0.6rem; padding: 0.42rem 0.4rem; border-radius: 11px; transition: background 0.14s; }
+  .item { display: flex; align-items: center; gap: 0.6rem; padding: 0.42rem 0.4rem; border-radius: 11px; transition: background 0.14s; touch-action: pan-y; }
   .item:hover { background: var(--app-bg); }
-  .item.drag-over { box-shadow: inset 0 2px 0 var(--accent); }
-  .grip { color: var(--muted); cursor: grab; opacity: 0; font-size: 0.9rem; transition: opacity 0.14s; }
-  .item:hover .grip { opacity: 0.6; }
+  .item.dragging { position: relative; z-index: 5; background: var(--surface); box-shadow: var(--shadow); border-radius: 11px; }
+  .grip { color: var(--muted); cursor: grab; opacity: 0.4; font-size: 0.9rem; transition: opacity 0.14s; touch-action: none; }
+  .item:hover .grip { opacity: 0.85; }
+  .grip:active { cursor: grabbing; }
   .check { width: 28px; height: 28px; flex-shrink: 0; display: grid; place-items: center; background: none; border: none; transition: transform 0.15s var(--ease-spring); }
   .check:active { transform: scale(0.8); }
   .check .acorn { width: 24px; height: 24px; }
@@ -537,6 +544,7 @@
         <option value="updated">Updated</option>
         <option value="created">Created</option>
         <option value="title">A–Z</option>
+        <option value="manual">My order</option>
       </select>
       <button class="icon-btn" id="viewToggle" aria-label="List or grid">▦</button>
     </header>
@@ -685,6 +693,59 @@
         listening = true; mic.textContent = "⏹ Stop"; mic.classList.add("accent", "mic-on"); ta.focus();
       } catch (e) { alert("Voice input isn't available in this browser. Try Chrome."); stopUI(); }
     };
+  }
+
+  // Touch + mouse compatible drag-to-reorder. Native HTML5 drag-and-drop
+  // (dragstart/dragover/drop) never fires from touch on mobile browsers, so a
+  // grip handle built on it silently does nothing on a phone. This uses
+  // Pointer Events instead, which fire the same way for touch, mouse, and pen.
+  // Delegated on `container` (bound once — safe to call again after every
+  // re-render as long as `container` itself is the same persisting element),
+  // and re-queries rows fresh at the moment a drag starts.
+  function enableDragReorder(container, rowSel, handleSel, onDrop) {
+    if (!container || container.dataset.dragWired) return;
+    container.dataset.dragWired = "1";
+    let dragEl = null, rows = [], startY = 0, curIndex = -1, moved = false, pid = null;
+    const targetIndex = () => {
+      const dr = dragEl.getBoundingClientRect();
+      const mid = dr.top + dr.height / 2;
+      let idx = 0;
+      for (const r of rows) { if (r === dragEl) continue; const rr = r.getBoundingClientRect(); if (rr.top + rr.height / 2 < mid) idx++; }
+      return idx;
+    };
+    const clear = () => {
+      if (dragEl) { dragEl.classList.remove("dragging"); dragEl.style.transform = ""; }
+      dragEl = null; rows = []; moved = false; pid = null;
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onUp);
+    };
+    function onMove(e) {
+      if (!dragEl || e.pointerId !== pid) return;
+      moved = true; e.preventDefault();
+      dragEl.style.transform = `translateY(${e.clientY - startY}px)`;
+    }
+    function onUp(e) {
+      if (!dragEl || e.pointerId !== pid) return;
+      const from = curIndex, to = targetIndex(), didMove = moved;
+      clear();
+      if (didMove && to !== from) onDrop(from, to);
+    }
+    container.addEventListener("pointerdown", (e) => {
+      const handle = e.target.closest(handleSel);
+      if (!handle || !container.contains(handle)) return;
+      const row = handle.closest(rowSel);
+      if (!row) return;
+      e.preventDefault();
+      dragEl = row; pid = e.pointerId; startY = e.clientY; moved = false;
+      rows = [...container.querySelectorAll(rowSel)];
+      curIndex = rows.indexOf(row);
+      row.classList.add("dragging");
+      try { row.setPointerCapture(pid); } catch (err) {}
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      document.addEventListener("pointercancel", onUp);
+    });
   }
 
   function openBrainDump() {
@@ -1167,11 +1228,30 @@
     });
     list.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      if (prefs.sort === "manual") return 0; // keep notes[] array order (drag-to-reorder writes it directly)
       if (prefs.sort === "title") return a.title.localeCompare(b.title);
       const k = prefs.sort === "created" ? "created" : "updated";
       return (b[k] || "").localeCompare(a[k] || "");
     });
     return list;
+  }
+  // Move the note being dragged (at its position within the currently VISIBLE
+  // list) to sit before/after the note it was dropped near, translated back
+  // into the real notes[] array (which may hold notes hidden by the current
+  // filter/search). Switches sort to "My order" the first time you drag.
+  function reorderNotes(fromVisIdx, toVisIdx) {
+    const list = visibleNotes();
+    const dragged = list[fromVisIdx], targetNote = list[toVisIdx];
+    if (!dragged || !targetNote || dragged === targetNote) return;
+    const arr = notes.slice();
+    const di = arr.indexOf(dragged);
+    arr.splice(di, 1);
+    let ti = arr.indexOf(targetNote);
+    if (fromVisIdx < toVisIdx) ti += 1;
+    arr.splice(ti, 0, dragged);
+    notes = arr;
+    if (prefs.sort !== "manual") { prefs.sort = "manual"; savePrefs(); const s = $("#sort"); if (s) s.value = "manual"; }
+    persist(); renderList();
   }
   function touch(n) { n.updated = now(); }
 
@@ -1228,7 +1308,7 @@
       html += `</div>`;
     }
     html += `<div class="nav-label">Routines</div>`;
-    templates.forEach((tp) => html += `<div class="tpl-item"><button class="nav-item tpl-new" data-tpl="${tp.id}">🔁 ${esc(tp.name)}<span class="count">${REPEAT_LABEL[tp.repeat] || ""}</span></button><button class="tpl-del" data-tpldel="${tp.id}" title="Delete routine">✕</button></div>`);
+    templates.forEach((tp) => html += `<div class="tpl-item"><span class="tpl-grip" title="Drag to reorder">⠿</span><button class="nav-item tpl-new" data-tpl="${tp.id}">🔁 ${esc(tp.name)}<span class="count">${REPEAT_LABEL[tp.repeat] || ""}</span></button><button class="tpl-del" data-tpldel="${tp.id}" title="Delete routine">✕</button></div>`);
     html += `<button class="nav-item tpl-add" id="newRoutine">＋ New routine</button>`;
     nav.innerHTML = html;
     nav.querySelectorAll("[data-tpl]").forEach((el) => el.addEventListener("click", () => { const tp = templates.find((t) => t.id === el.dataset.tpl); if (tp) newFromTemplate(tp); }));
@@ -1246,6 +1326,10 @@
       renderNav(); renderList();
       if (window.innerWidth <= 940) $("#app").classList.remove("rail-open");
     }));
+    enableDragReorder(nav, ".tpl-item", ".tpl-grip", (from, to) => {
+      const arr = templates.slice(); const [m] = arr.splice(from, 1); if (m === undefined) return;
+      arr.splice(to, 0, m); templates = arr; saveTemplates(); renderNav();
+    });
   }
 
   // An item is done when it has no sub-steps and is checked, or all its
@@ -1283,7 +1367,8 @@
     const cphoto = (n.photos && n.photos.length)
       ? `<div class="card-photo"><img src="${n.photos[0]}" loading="lazy" alt="" />${n.photos.length > 1 ? `<span class="card-photo-n">+${n.photos.length - 1}</span>` : ""}</div>`
       : "";
-    return `<div class="card-top"><span class="card-title">${esc(n.title) || "Untitled"}</span><span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span></div>
+    const grip = prefs.view === "list" ? `<span class="card-grip" title="Drag to reorder">⠿</span>` : "";
+    return `<div class="card-top">${grip}<span class="card-title">${esc(n.title) || "Untitled"}</span><span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span></div>
       <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
       ${cphoto}${body}${tags}`;
   }
@@ -1325,6 +1410,7 @@
     }
     ul.innerHTML = list.map((n) => `<li><button class="card ${n.id === selectedId ? "sel" : ""}" data-id="${n.id}" ${cardStyle(n)}>${cardInner(n)}</button></li>`).join("");
     ul.querySelectorAll(".card").forEach((el) => el.addEventListener("click", (e) => {
+      if (e.target.closest(".card-grip")) return;
       const pinEl = e.target.closest("[data-pin]");
       if (pinEl) { const n = notes.find((x) => x.id === pinEl.dataset.pin); patch(n.id, { pinned: !n.pinned }); renderList(); return; }
       const cbx = e.target.closest("[data-cardtoggle]");
@@ -1347,6 +1433,7 @@
       selectedId = el.dataset.id; showBulk = false; renderList(); renderEditor(); setSelectedFlag();
       if (window.innerWidth <= 940) $("#app").classList.remove("rail-open");
     }));
+    enableDragReorder(ul, ".card", ".card-grip", reorderNotes);
   }
 
   function renderEditor() {
@@ -1530,7 +1617,6 @@
     ta.addEventListener("input", () => { patch(n.id, { content: ta.value }); flashSaving(); updateCard(n.id, ".card-sub", preview(n)); });
   }
 
-  let dragIdx = null;
   const openSteps = new Set(); // which items have their "break it down" panel open
   function renderChecklist(n) {
     const items = n.items || [];
@@ -1555,7 +1641,7 @@
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
       <div class="chk">
         <div class="items" id="items">
-          ${items.map((it, idx) => {
+          ${items.map((it) => {
             const subs = it.sub || [];
             const dn = itemDone(it);
             const open = openSteps.has(it.id) || subs.length > 0;
@@ -1566,7 +1652,7 @@
                 <button class="item-del" data-subdel="${it.id}|${s.id}" aria-label="Remove step">✕</button>
               </div>`).join("");
             return `
-            <div class="item ${dn ? "done" : ""}" draggable="true" data-idx="${idx}" data-id="${it.id}">
+            <div class="item ${dn ? "done" : ""}" data-id="${it.id}">
               <span class="grip" title="Drag to reorder">⠿</span>
               <button class="check" data-toggle="${it.id}" aria-label="Toggle">${ACORN(dn)}</button>
               <input class="item-text" data-text="${it.id}" value="${esc(it.text)}" />
@@ -1641,13 +1727,18 @@
       if (lines.length) { n.items = [...items, ...lines.map((text) => ({ id: uid(), text, checked: false }))]; touch(n); saveSoon(); }
       showBulk = false; renderChecklist(n); refreshCard(n.id);
     };
-    $("#body").querySelectorAll(".item").forEach((el) => {
-      el.addEventListener("dragstart", () => { dragIdx = +el.dataset.idx; });
-      el.addEventListener("dragover", (e) => { e.preventDefault(); el.classList.add("drag-over"); });
-      el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
-      el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("drag-over");
-        const to = +el.dataset.idx; if (dragIdx === null || dragIdx === to) return;
-        const arr = [...items]; const [m] = arr.splice(dragIdx, 1); arr.splice(to, 0, m); n.items = arr; dragIdx = null; touch(n); saveSoon(); renderChecklist(n); });
+    // The #body element persists across many renderChecklist() calls (every
+    // toggle/add/edit re-renders it), and enableDragReorder only wires its
+    // pointerdown listener once per element — so this callback must never
+    // close over this render's local `items`/`n`, or a later drag would act
+    // on a stale (possibly empty, possibly a different note's) snapshot.
+    // Always look up the live, currently-selected note instead.
+    enableDragReorder($("#body"), ".item", ".grip", (from, to) => {
+      const cur = selected(); if (!cur) return;
+      const arr = (cur.items || []).slice();
+      const [m] = arr.splice(from, 1); if (m === undefined) return;
+      arr.splice(to, 0, m);
+      cur.items = arr; touch(cur); saveSoon(); renderChecklist(cur); refreshCard(cur.id);
     });
     const rs = $("#repeatSel");
     if (rs) { rs.value = n.repeat || "none"; rs.onchange = () => { n.repeat = rs.value; n.lastReset = periodKey(rs.value); touch(n); saveSoon(); refreshCard(n.id); }; }

@@ -248,6 +248,7 @@
   .progress-num { font-family: var(--round); font-weight: 700; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
   .chk-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; padding: 0 0.2rem 0.6rem; }
   .repeat-ctl { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--muted); font-weight: 600; }
+  .routine-streak { font-family: var(--round); font-weight: 700; font-size: 0.78rem; color: color-mix(in srgb, var(--accent) 78%, var(--fg)); background: var(--accent-soft); border-radius: 99px; padding: 0.22rem 0.6rem; white-space: nowrap; }
   .repeat-ctl select { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0.25rem 0.4rem; font-size: 0.8rem; color: var(--fg); }
   .repeat-ctl select:focus { outline: none; border-color: var(--accent); }
   .tpl-item { display: flex; align-items: center; }
@@ -855,15 +856,52 @@
   function levelFor(xp) { return Math.floor((xp || 0) / XP_PER_LEVEL) + 1; }
   function loadStats() { try { const r = localStorage.getItem(STATS_KEY); if (r) stats = { days: {}, xp: 0, ...JSON.parse(r) }; } catch (e) {} }
   function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch (e) {} }
-  function todayKey() { return new Date().toLocaleDateString("en-CA"); }
-  function weekKey() { const d = new Date(); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
-  function periodKey(repeat) {
-    if (repeat === "weekly") return weekKey();
-    if (repeat === "monthly") { const d = new Date(); return "M" + d.getFullYear() + "-" + (d.getMonth() + 1); }
-    if (repeat === "weekdays") { const d = new Date(), day = d.getDay(); if (day === 6) d.setDate(d.getDate() - 1); else if (day === 0) d.setDate(d.getDate() - 2); return "WD" + d.toLocaleDateString("en-CA"); }
-    return todayKey(); // daily
+  function todayKeyAt(d) { return d.toLocaleDateString("en-CA"); }
+  function weekKeyAt(d0) { const d = new Date(d0); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
+  function periodKeyAt(repeat, d0) {
+    const d = new Date(d0);
+    if (repeat === "weekly") return weekKeyAt(d);
+    if (repeat === "monthly") return "M" + d.getFullYear() + "-" + (d.getMonth() + 1);
+    if (repeat === "weekdays") { const day = d.getDay(); if (day === 6) d.setDate(d.getDate() - 1); else if (day === 0) d.setDate(d.getDate() - 2); return "WD" + d.toLocaleDateString("en-CA"); }
+    return todayKeyAt(d); // daily
   }
+  function todayKey() { return todayKeyAt(new Date()); }
+  function weekKey() { return weekKeyAt(new Date()); }
+  function periodKey(repeat) { return periodKeyAt(repeat, new Date()); }
   const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly" };
+
+  // ---- per-routine streaks (separate from the global day-streak) ----
+  // Steps a date back one period for a given repeat cadence — used to walk
+  // backward through a note's own streakLog counting consecutive completions.
+  function prevPeriodDate(repeat, d0) {
+    const d = new Date(d0);
+    if (repeat === "monthly") { d.setMonth(d.getMonth() - 1); return d; }
+    if (repeat === "weekly") { d.setDate(d.getDate() - 7); return d; }
+    d.setDate(d.getDate() - 1);
+    if (repeat === "weekdays") { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1); }
+    return d; // daily
+  }
+  // Mark today's (or this week's/month's) period as fully completed for a
+  // recurring checklist. Safe to call on every toggle — it just re-checks
+  // completeness and records it; already-marked periods aren't affected.
+  function markRoutineDay(n) {
+    if (!n.repeat || n.repeat === "none") return;
+    if (!(n.items || []).length || !n.items.every(itemDone)) return;
+    n.streakLog = n.streakLog || {};
+    n.streakLog[periodKey(n.repeat)] = true;
+  }
+  // Consecutive completed periods up to and including the most recent one
+  // (today still counts as "in progress" if not yet done, mirroring the
+  // global streak — an unfinished today doesn't zero out yesterday's streak).
+  function noteStreakCount(n) {
+    const log = n.streakLog; if (!log) return 0;
+    const repeat = n.repeat && n.repeat !== "none" ? n.repeat : "daily";
+    let d = new Date();
+    if (!log[periodKeyAt(repeat, d)]) d = prevPeriodDate(repeat, d);
+    let count = 0;
+    while (log[periodKeyAt(repeat, d)]) { count++; d = prevPeriodDate(repeat, d); }
+    return count;
+  }
   function bumpStat() {
     const k = todayKey(); stats.days[k] = (stats.days[k] || 0) + 1;
     const before = levelFor(stats.xp);
@@ -1229,7 +1267,7 @@
       $("#focusExit").onclick = () => { stopFocusTimer(); closeSettings(); };
       $("#focusDone").onclick = () => {
         it.checked = true; if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = true));
-        bumpStat(); touch(n); saveSoon(); refreshCard(n.id); draw();
+        bumpStat(); markRoutineDay(n); touch(n); saveSoon(); refreshCard(n.id); draw();
       };
       const sk = $("#focusSkip"); if (sk) sk.onclick = () => { const arr = n.items, i = arr.indexOf(it); arr.push(arr.splice(i, 1)[0]); touch(n); saveSoon(); draw(); };
       $("#focusTimerBtn").onclick = () => {
@@ -1498,7 +1536,7 @@
     const check = selecting ? `<span class="card-check">${selectedIds.has(n.id) ? "✓" : ""}</span>` : "";
     const star = selecting ? "" : `<span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span>`;
     return `<div class="card-top">${grip}${check}<span class="card-title">${esc(n.title) || "Untitled"}</span>${star}</div>
-      <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
+      <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? ` · 🔥${noteStreakCount(n)}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
       ${cphoto}${body}${tags}`;
   }
 
@@ -1560,6 +1598,7 @@
           if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = nowDone));
           it.checked = nowDone; touch(n); saveSoon();
           if (nowDone) bumpStat();
+          markRoutineDay(n);
           const after = n.items.filter(itemDone).length;
           if (n.items.length && after === n.items.length && before < n.items.length) { playChime(); celebrate(); }
           refreshCard(nid);
@@ -1803,7 +1842,7 @@
     // Re-render + persist + refresh the card, firing celebration when the whole
     // list flips to complete.
     const commit = (wasDone) => {
-      touch(n); saveSoon();
+      touch(n); saveSoon(); markRoutineDay(n);
       const nowAll = items.length > 0 && items.every(itemDone);
       if (nowAll && !wasDone) { playChime(); celebrate(); }
       renderChecklist(n); refreshCard(n.id);
@@ -1813,6 +1852,7 @@
         <label class="repeat-ctl">🔁 Repeats
           <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
         </label>
+        ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "monthly" ? "month" : "day"} streak</span>` : ""}
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
       </div>
@@ -2054,7 +2094,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none", lastReset: n.lastReset || null, streakLog: (n.streakLog && typeof n.streakLog === "object") ? n.streakLog : {}, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [

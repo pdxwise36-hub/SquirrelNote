@@ -162,6 +162,7 @@
   #search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .icon-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 0.42rem 0.55rem; color: var(--muted); box-shadow: var(--shadow-sm); transition: transform 0.12s var(--ease-spring); }
   .icon-btn:hover { color: var(--fg); }
+  .icon-btn.on { background: var(--accent); color: var(--accent-contrast); border-color: transparent; }
   .icon-btn:active { transform: scale(0.92); }
   #sort { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 0.42rem 0.4rem; font-size: 0.78rem; color: var(--muted); box-shadow: var(--shadow-sm); }
   #segbar { display: flex; padding: 0.15rem 0.9rem 0.55rem; }
@@ -465,6 +466,27 @@
   .bd-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; padding: 0.6rem 0.8rem calc(0.6rem + env(safe-area-inset-bottom)); border-top: 1px solid var(--border); background: var(--surface); }
   .bd-bar .spacer { flex: 1; }
 
+  /* multi-select + bulk actions */
+  .card-check { width: 20px; height: 20px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--fg) 30%, transparent);
+    flex-shrink: 0; display: grid; place-items: center; font-size: 0.7rem; color: transparent; transition: background 0.14s, border-color 0.14s; }
+  .card.picked .card-check { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .card.picked { outline: 2.5px solid var(--accent); outline-offset: 1px; }
+  #bulkBar:empty { display: none; }
+  .bulkbar { position: fixed; left: 0.8rem; right: 0.8rem; bottom: 1.1rem; z-index: 36; background: var(--rail-bg); color: var(--rail-fg);
+    border-radius: 16px; padding: 0.55rem 0.7rem; display: flex; align-items: center; gap: 0.4rem; box-shadow: var(--shadow-lg); animation: pop 0.22s var(--ease-spring); }
+  .bulkbar .bk-count { font-family: var(--round); font-weight: 700; font-size: 0.85rem; padding-right: 0.3rem; white-space: nowrap; }
+  .bulkbar button { color: var(--rail-fg); background: rgba(255,255,255,0.08); border-radius: 10px; padding: 0.42rem 0.6rem; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
+  .bulkbar button:hover { background: rgba(255,255,255,0.16); }
+  .bulkbar .bk-del { color: #ff8a8a; }
+  .bulkbar .bk-spacer { flex: 1; }
+
+  /* trash */
+  .trash-actions { display: flex; align-items: center; gap: 0.5rem; padding: 0.2rem 0.2rem 0.7rem; }
+  .trash-row { display: flex; align-items: center; gap: 0.55rem; padding: 0.7rem 0.85rem; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); margin-bottom: 0.5rem; }
+  .trash-info { flex: 1; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; }
+  .trash-title { font-family: var(--serif); font-weight: 700; font-size: 0.96rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trash-when { font-size: 0.72rem; color: var(--muted); }
+
   /* daily affirmation */
   #affirm:empty { display: none; }
   .affirm-card { display: flex; align-items: center; gap: 0.6rem; margin: 0 0.9rem 0.55rem; padding: 0.55rem 0.85rem; border-radius: var(--radius);
@@ -546,6 +568,7 @@
         <option value="title">A–Z</option>
         <option value="manual">My order</option>
       </select>
+      <button class="icon-btn" id="selectBtn" aria-label="Select multiple" title="Select multiple">☑</button>
       <button class="icon-btn" id="viewToggle" aria-label="List or grid">▦</button>
     </header>
     <div id="segbar">
@@ -557,6 +580,7 @@
     </div>
     <div id="affirm"></div>
     <ul id="list" class="scroll"></ul>
+    <div id="bulkBar"></div>
   </section>
 
   <main id="editor" class="scroll"></main>
@@ -615,7 +639,9 @@
   let notes = [];
   let prefs = { ...DEFAULT_PREFS };
   let selectedId = null;
-  let filter = { folder: null, tag: null, query: "", kind: "all" };
+  let filter = { folder: null, tag: null, query: "", kind: "all", trash: false };
+  let selecting = false; // multi-select mode
+  const selectedIds = new Set();
   let showBulk = false;
   let saveTimer = null;
 
@@ -1211,15 +1237,20 @@
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (prefs.theme === "system") applyPrefs(); });
 
   function selected() { return notes.find((n) => n.id === selectedId) || null; }
-  function folders() { return [...new Set(notes.map((n) => n.folder).filter(Boolean))].sort(); }
-  function allTags() { const s = new Set(); notes.forEach((n) => (n.tags || []).forEach((t) => s.add(t))); return [...s].sort(); }
+  function activeNotes() { return notes.filter((n) => !n.deleted); }
+  function folders() { return [...new Set(activeNotes().map((n) => n.folder).filter(Boolean))].sort(); }
+  function allTags() { const s = new Set(); activeNotes().forEach((n) => (n.tags || []).forEach((t) => s.add(t))); return [...s].sort(); }
 
   function visibleNotes() {
     const q = filter.query.trim().toLowerCase();
     let list = notes.filter((n) => {
-      if (filter.kind !== "all" && n.kind !== filter.kind) return false;
-      if (filter.folder && n.folder !== filter.folder) return false;
-      if (filter.tag && !(n.tags || []).includes(filter.tag)) return false;
+      if (filter.trash) { if (!n.deleted) return false; }
+      else {
+        if (n.deleted) return false;
+        if (filter.kind !== "all" && n.kind !== filter.kind) return false;
+        if (filter.folder && n.folder !== filter.folder) return false;
+        if (filter.tag && !(n.tags || []).includes(filter.tag)) return false;
+      }
       if (q) {
         const hay = (n.title + " " + n.content + " " + (n.items || []).map((i) => i.text).join(" ") + " " + (n.tags || []).join(" ")).toLowerCase();
         if (!hay.includes(q)) return false;
@@ -1227,6 +1258,7 @@
       return true;
     });
     list.sort((a, b) => {
+      if (filter.trash) return (b.deleted || "").localeCompare(a.deleted || ""); // most recently deleted first
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
       if (prefs.sort === "manual") return 0; // keep notes[] array order (drag-to-reorder writes it directly)
       if (prefs.sort === "title") return a.title.localeCompare(b.title);
@@ -1263,20 +1295,34 @@
     setTimeout(() => { const t = $("#edTitle"); if (t) { t.focus(); t.select(); } }, 30);
   }
   function patch(id, p) { const n = notes.find((x) => x.id === id); if (!n) return; Object.assign(n, p); touch(n); saveSoon(); }
-  let lastDeleted = null, undoTO = null;
+  // Deleting moves a note to Trash (soft-delete) rather than removing it right
+  // away — the Undo snackbar just clears the flag, and it also stays
+  // recoverable from Trash for 30 days after that in case Undo is missed.
+  const TRASH_DAYS = 30;
+  let undoTO = null;
   function del(id) {
-    const idx = notes.findIndex((n) => n.id === id);
-    if (idx === -1) return;
-    lastDeleted = { note: notes[idx], idx };
-    notes.splice(idx, 1);
+    const n = notes.find((x) => x.id === id);
+    if (!n) return;
+    n.deleted = now();
     if (selectedId === id) selectedId = null;
     persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
     undoToast("🗑 Note deleted", () => {
-      if (!lastDeleted) return;
-      notes.splice(Math.min(lastDeleted.idx, notes.length), 0, lastDeleted.note);
-      selectedId = lastDeleted.note.id; lastDeleted = null;
-      persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
+      n.deleted = null; touch(n); persist(); renderNav(); renderList(); renderEditor(); setSelectedFlag();
     });
+  }
+  function restoreNote(id) {
+    const n = notes.find((x) => x.id === id); if (!n) return;
+    n.deleted = null; touch(n); persist(); renderNav(); renderList();
+  }
+  function purgeNote(id) { notes = notes.filter((n) => n.id !== id); persist(); renderNav(); renderList(); }
+  function emptyTrash() { notes = notes.filter((n) => !n.deleted); persist(); renderNav(); renderList(); }
+  // Housekeeping on boot: drop trash older than TRASH_DAYS so storage doesn't
+  // grow forever from things you never got around to emptying.
+  function purgeOldTrash() {
+    const cutoff = Date.now() - TRASH_DAYS * 24 * 60 * 60 * 1000;
+    const before = notes.length;
+    notes = notes.filter((n) => !n.deleted || new Date(n.deleted).getTime() > cutoff);
+    if (notes.length !== before) persist();
   }
   function undoToast(msg, onUndo) {
     const old = document.querySelector(".toast.undo"); if (old) old.remove();
@@ -1294,18 +1340,21 @@
 
   function renderNav() {
     const nav = $("#nav");
-    const fs = folders(), ts = allTags();
+    const fs = folders(), ts = allTags(), trashCount = notes.filter((n) => n.deleted).length;
     let html = "";
-    html += `<button class="nav-item ${!filter.folder && !filter.tag ? "active" : ""}" data-kind="all"><span>🗒️ All notes</span><span class="count">${notes.length}</span></button>`;
+    html += `<button class="nav-item ${!filter.folder && !filter.tag && !filter.trash ? "active" : ""}" data-kind="all"><span>🗒️ All notes</span><span class="count">${activeNotes().length}</span></button>`;
     if (fs.length) {
       html += `<div class="nav-label">Folders</div>`;
-      fs.forEach((f) => { const c = notes.filter((n) => n.folder === f).length;
-        html += `<button class="nav-item ${filter.folder === f ? "active" : ""}" data-kind="folder" data-val="${esc(f)}"><span>📁 ${esc(f)}</span><span class="count">${c}</span></button>`; });
+      fs.forEach((f) => { const c = activeNotes().filter((n) => n.folder === f).length;
+        html += `<button class="nav-item ${filter.folder === f && !filter.trash ? "active" : ""}" data-kind="folder" data-val="${esc(f)}"><span>📁 ${esc(f)}</span><span class="count">${c}</span></button>`; });
     }
     if (ts.length) {
       html += `<div class="nav-label">Tags</div><div class="tagrow">`;
-      ts.forEach((t) => html += `<button class="rchip ${filter.tag === t ? "active" : ""}" data-tag="${esc(t)}" style="${filter.tag === t ? `background:${tagColor(t)};color:#fff` : `background:color-mix(in srgb, ${tagColor(t)} 30%, transparent);color:var(--rail-fg)`}">#${esc(t)}</button>`);
+      ts.forEach((t) => html += `<button class="rchip ${filter.tag === t && !filter.trash ? "active" : ""}" data-tag="${esc(t)}" style="${filter.tag === t ? `background:${tagColor(t)};color:#fff` : `background:color-mix(in srgb, ${tagColor(t)} 30%, transparent);color:var(--rail-fg)`}">#${esc(t)}</button>`);
       html += `</div>`;
+    }
+    if (trashCount) {
+      html += `<button class="nav-item ${filter.trash ? "active" : ""}" data-kind="trash"><span>🗑 Trash</span><span class="count">${trashCount}</span></button>`;
     }
     html += `<div class="nav-label">Routines</div>`;
     templates.forEach((tp) => html += `<div class="tpl-item"><span class="tpl-grip" title="Drag to reorder">⠿</span><button class="nav-item tpl-new" data-tpl="${tp.id}">🔁 ${esc(tp.name)}<span class="count">${REPEAT_LABEL[tp.repeat] || ""}</span></button><button class="tpl-del" data-tpldel="${tp.id}" title="Delete routine">✕</button></div>`);
@@ -1316,13 +1365,15 @@
     nav.querySelectorAll("[data-tpldel]").forEach((el) => el.addEventListener("click", (e) => { e.stopPropagation(); if (confirm("Delete this routine template? (Notes already created from it stay.)")) deleteTemplate(el.dataset.tpldel); }));
     nav.querySelectorAll("[data-kind]").forEach((el) => el.addEventListener("click", () => {
       const k = el.dataset.kind;
-      if (k === "all") filter = { ...filter, folder: null, tag: null };
-      else if (k === "folder") filter = { ...filter, folder: el.dataset.val, tag: null };
+      if (k === "all") filter = { ...filter, folder: null, tag: null, trash: false };
+      else if (k === "folder") filter = { ...filter, folder: el.dataset.val, tag: null, trash: false };
+      else if (k === "trash") filter = { ...filter, folder: null, tag: null, trash: true };
+      exitSelectMode();
       renderNav(); renderList();
       if (window.innerWidth <= 940) $("#app").classList.remove("rail-open");
     }));
     nav.querySelectorAll("[data-tag]").forEach((el) => el.addEventListener("click", () => {
-      const t = el.dataset.tag; filter = { ...filter, tag: filter.tag === t ? null : t, folder: null };
+      const t = el.dataset.tag; filter = { ...filter, tag: filter.tag === t ? null : t, folder: null, trash: false };
       renderNav(); renderList();
       if (window.innerWidth <= 940) $("#app").classList.remove("rail-open");
     }));
@@ -1367,8 +1418,10 @@
     const cphoto = (n.photos && n.photos.length)
       ? `<div class="card-photo"><img src="${n.photos[0]}" loading="lazy" alt="" />${n.photos.length > 1 ? `<span class="card-photo-n">+${n.photos.length - 1}</span>` : ""}</div>`
       : "";
-    const grip = prefs.view === "list" ? `<span class="card-grip" title="Drag to reorder">⠿</span>` : "";
-    return `<div class="card-top">${grip}<span class="card-title">${esc(n.title) || "Untitled"}</span><span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span></div>
+    const grip = (prefs.view === "list" && !selecting) ? `<span class="card-grip" title="Drag to reorder">⠿</span>` : "";
+    const check = selecting ? `<span class="card-check">${selectedIds.has(n.id) ? "✓" : ""}</span>` : "";
+    const star = selecting ? "" : `<span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span>`;
+    return `<div class="card-top">${grip}${check}<span class="card-title">${esc(n.title) || "Untitled"}</span>${star}</div>
       <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
       ${cphoto}${body}${tags}`;
   }
@@ -1403,13 +1456,21 @@
 
   function renderList() {
     const ul = $("#list");
+    if (filter.trash) { renderTrashRows(ul); renderBulkBar(); return; }
     const list = visibleNotes();
     if (!list.length) {
       ul.innerHTML = `<li class="empty">Nothing stashed yet 🌰<br>Tap the ＋ button to capture your first thought.</li>`;
+      renderBulkBar();
       return;
     }
-    ul.innerHTML = list.map((n) => `<li><button class="card ${n.id === selectedId ? "sel" : ""}" data-id="${n.id}" ${cardStyle(n)}>${cardInner(n)}</button></li>`).join("");
+    ul.innerHTML = list.map((n) => `<li><button class="card ${n.id === selectedId && !selecting ? "sel" : ""} ${selecting && selectedIds.has(n.id) ? "picked" : ""}" data-id="${n.id}" ${cardStyle(n)}>${cardInner(n)}</button></li>`).join("");
     ul.querySelectorAll(".card").forEach((el) => el.addEventListener("click", (e) => {
+      if (selecting) {
+        const id = el.dataset.id;
+        if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+        renderList();
+        return;
+      }
       if (e.target.closest(".card-grip")) return;
       const pinEl = e.target.closest("[data-pin]");
       if (pinEl) { const n = notes.find((x) => x.id === pinEl.dataset.pin); patch(n.id, { pinned: !n.pinned }); renderList(); return; }
@@ -1434,6 +1495,47 @@
       if (window.innerWidth <= 940) $("#app").classList.remove("rail-open");
     }));
     enableDragReorder(ul, ".card", ".card-grip", reorderNotes);
+    renderBulkBar();
+  }
+  function renderTrashRows(ul) {
+    const list = visibleNotes(); // filter.trash is true here: deleted notes, most-recently-deleted first
+    if (!list.length) { ul.innerHTML = `<li class="empty">Trash is empty 🌰</li>`; return; }
+    ul.innerHTML = `<li class="trash-actions"><button class="btn-sm" id="emptyTrashBtn">Empty trash</button><span class="fineprint" style="margin:0">Auto-clears after ${TRASH_DAYS} days</span></li>`
+      + list.map((n) => `<li><div class="trash-row"><div class="trash-info"><span class="trash-title">${esc(n.title) || "Untitled"}</span><span class="trash-when">Deleted ${timeAgo(n.deleted)}</span></div><button class="btn-sm" data-restore="${n.id}">Restore</button><button class="del-btn" data-purge="${n.id}">Delete forever</button></div></li>`).join("");
+    const eb = $("#emptyTrashBtn");
+    if (eb) eb.onclick = () => { if (confirm("Permanently delete everything in Trash? This can't be undone.")) emptyTrash(); };
+    ul.querySelectorAll("[data-restore]").forEach((el) => el.onclick = () => restoreNote(el.dataset.restore));
+    ul.querySelectorAll("[data-purge]").forEach((el) => el.onclick = () => { if (confirm("Delete this note forever? This can't be undone.")) purgeNote(el.dataset.purge); });
+  }
+
+  // ---- multi-select bulk actions ----
+  function updateSelectBtn() {
+    const b = $("#selectBtn"); if (!b) return;
+    b.textContent = selecting ? "✕" : "☑";
+    b.title = b.ariaLabel = selecting ? "Cancel selecting" : "Select multiple";
+    b.classList.toggle("on", selecting);
+    const fab = $("#fab"); if (fab) fab.style.display = selecting ? "none" : "";
+  }
+  function enterSelectMode() { selecting = true; selectedIds.clear(); updateSelectBtn(); renderList(); }
+  function exitSelectMode() { if (!selecting) return; selecting = false; selectedIds.clear(); updateSelectBtn(); }
+  function renderBulkBar() {
+    const bar = $("#bulkBar"); if (!bar) return;
+    if (!selecting || !selectedIds.size) { bar.innerHTML = ""; return; }
+    bar.innerHTML = `<div class="bulkbar">
+      <span class="bk-count">${selectedIds.size} selected</span>
+      <button id="bkPin">★ Pin</button>
+      <button id="bkUnpin">☆ Unpin</button>
+      <span class="bk-spacer"></span>
+      <button class="bk-del" id="bkDel">🗑 Delete</button>
+    </div>`;
+    $("#bkPin").onclick = () => { selectedIds.forEach((id) => { const n = notes.find((x) => x.id === id); if (n) { n.pinned = true; touch(n); } }); persist(); renderList(); };
+    $("#bkUnpin").onclick = () => { selectedIds.forEach((id) => { const n = notes.find((x) => x.id === id); if (n) { n.pinned = false; touch(n); } }); persist(); renderList(); };
+    $("#bkDel").onclick = () => {
+      const cnt = selectedIds.size;
+      if (!confirm(`Move ${cnt} note${cnt === 1 ? "" : "s"} to Trash?`)) return;
+      selectedIds.forEach((id) => { const n = notes.find((x) => x.id === id); if (n) n.deleted = now(); });
+      persist(); exitSelectMode(); renderNav(); renderList();
+    };
   }
 
   function renderEditor() {
@@ -1876,7 +1978,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [
@@ -2016,6 +2118,10 @@
   $("#search").addEventListener("input", (e) => { filter.query = e.target.value; renderList(); });
   $("#sort").addEventListener("change", (e) => { prefs.sort = e.target.value; savePrefs(); renderList(); });
   $("#viewToggle").onclick = () => { prefs.view = prefs.view === "list" ? "grid" : "list"; savePrefs(); applyPrefs(); renderList(); };
+  $("#selectBtn").onclick = () => {
+    if (filter.trash) return; // Trash has its own per-row Restore/Delete forever actions
+    if (selecting) { exitSelectMode(); renderList(); } else { enterSelectMode(); }
+  };
   $("#railToggle").onclick = () => $("#app").classList.toggle("rail-open");
   $("#railScrim").onclick = () => $("#app").classList.remove("rail-open");
   $("#kindSeg").querySelectorAll("[data-kind]").forEach((el) => el.addEventListener("click", () => {
@@ -2045,6 +2151,7 @@
     saveTemplates(); prefs.routineFlowV1 = true; savePrefs();
   }
   resetRecurring();
+  purgeOldTrash();
   checkHash();
   applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak(); renderAffirmation();
   scheduleReminders();

@@ -1774,12 +1774,24 @@
     if (prefs.autoColor) return autoColorFor(n);
     return null;
   }
+  // Untouched notes quietly lose their color over time — no badge, no
+  // "overdue" language, just a gentle visual fade (mirrors the pet drifting
+  // off to sleep). Pinned notes and active routines are exempt since those
+  // are meant to sit there. Editing a note (touch()) resets it to full color.
+  function noteFadeFactor(n) {
+    if (n.pinned || (n.repeat && n.repeat !== "none")) return 0;
+    const days = (Date.now() - new Date(n.updated).getTime()) / 86400000;
+    if (days <= 3) return 0;
+    if (days >= 30) return 1;
+    return (days - 3) / (30 - 3);
+  }
   function cardStyle(n) {
     if (prefs.lowStim) return "";
-    const c = effectiveColor(n);
-    return c
-      ? `style="background:color-mix(in srgb, ${esc(c)} 20%, var(--surface));border-color:color-mix(in srgb, ${esc(c)} 42%, var(--border))"`
-      : "";
+    const raw = effectiveColor(n);
+    if (!raw) return "";
+    const fade = noteFadeFactor(n);
+    const c = fade > 0 ? `color-mix(in srgb, ${esc(raw)} ${Math.round((1 - fade) * 100)}%, var(--muted))` : esc(raw);
+    return `style="background:color-mix(in srgb, ${c} 20%, var(--surface));border-color:color-mix(in srgb, ${c} 42%, var(--border))"`;
   }
 
   function refreshCard(id) {

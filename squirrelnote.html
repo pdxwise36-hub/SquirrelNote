@@ -345,6 +345,8 @@
   .accent-custom { width: 34px; height: 34px; border-radius: 50%; border: 2px dashed var(--muted); display: grid; place-items: center; color: var(--muted); position: relative; }
   .accent-custom input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .fineprint { font-size: 0.76rem; color: var(--muted); line-height: 1.5; }
+  .sync-code { font-family: var(--round); font-weight: 800; font-size: 1.15rem; letter-spacing: 0.03em; text-align: center;
+    background: var(--surface-2); border: 1.5px dashed var(--border); border-radius: 12px; padding: 0.6rem; color: var(--fg); user-select: all; }
 
   /* quick capture modal */
   .qc { position: fixed; z-index: 41; top: 11vh; left: 50%; transform: translateX(-50%); width: 560px; max-width: 94vw;
@@ -704,7 +706,7 @@
     ["Moss", "#6f9b57"], ["Honey", "#e0a92e"],
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
-  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip" };
+  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip", syncCode: null, syncedAt: null };
   const DEFAULT_AFFIRMATIONS = [
     "One small step still counts. 🌱",
     "You don't have to do it all today.",
@@ -751,7 +753,7 @@
   function loadNotes() { try { const r = localStorage.getItem(NOTES_KEY); if (r) notes = JSON.parse(r); } catch (e) {} }
   let quotaWarned = false;
   function persist() {
-    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); quotaWarned = false; }
+    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); quotaWarned = false; syncSoon(); }
     catch (e) {
       if (!quotaWarned) {
         quotaWarned = true;
@@ -940,7 +942,7 @@
   const XP_PER_LEVEL = 100;          // points needed to gain a level
   function levelFor(xp) { return Math.floor((xp || 0) / XP_PER_LEVEL) + 1; }
   function loadStats() { try { const r = localStorage.getItem(STATS_KEY); if (r) stats = { days: {}, xp: 0, ...JSON.parse(r) }; } catch (e) {} }
-  function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); } catch (e) {} }
+  function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); syncSoon(); } catch (e) {} }
   function todayKeyAt(d) { return d.toLocaleDateString("en-CA"); }
   function weekKeyAt(d0) { const d = new Date(d0); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
   function periodKeyAt(repeat, d0) {
@@ -999,7 +1001,87 @@
   // ---- recurring checklists + templates ----
   let templates = [];
   function loadTemplates() { try { const r = localStorage.getItem(TEMPLATES_KEY); if (r) templates = JSON.parse(r); } catch (e) {} }
-  function saveTemplates() { try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates)); } catch (e) {} }
+  function saveTemplates() { try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates)); syncSoon(); } catch (e) {} }
+
+  // ---- cross-device sync (a "sync code" — no accounts, no passwords) -----
+  // A tiny hosted store holds one jsonb blob per code. Knowing the code IS
+  // the authorization, so it's generated with real entropy (16 chars from a
+  // 33-symbol alphabet ≈ 80 bits) and the server never lets it be listed or
+  // guessed — see the sync_pull/sync_push functions in Supabase. This talks
+  // to that API directly over fetch(); no client library needed, keeping the
+  // app a single dependency-free file.
+  const SYNC_URL = "https://dmsftllmpuwgcbdfmuso.supabase.co";
+  const SYNC_KEY = "sb_publishable_f8TCzA2MDb1q2jKnvmrwFw_6mmYzGAR";
+  async function syncRpc(fn, body) {
+    const res = await fetch(`${SYNC_URL}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SYNC_KEY, Authorization: `Bearer ${SYNC_KEY}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("sync http " + res.status);
+    return res.json();
+  }
+  // No 0/O/1/I/L — stays easy to read aloud or retype if a copy/paste fails.
+  function genSyncCode() {
+    const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+    const bytes = new Uint32Array(16);
+    crypto.getRandomValues(bytes);
+    let s = ""; for (let i = 0; i < 16; i++) s += alphabet[bytes[i] % alphabet.length];
+    return s.match(/.{4}/g).join("-");
+  }
+  function syncBlob() { return { notes, stats, templates }; }
+  // Union two id-keyed arrays, keeping whichever copy of each shared id has
+  // the later `updated` timestamp. Good enough for a single person's own
+  // devices — this isn't meant to arbitrate real simultaneous multi-editor
+  // conflicts, just "which device saw this note most recently."
+  function mergeById(localArr, remoteArr) {
+    const map = new Map();
+    (remoteArr || []).forEach((x) => map.set(x.id, x));
+    (localArr || []).forEach((x) => {
+      const r = map.get(x.id);
+      map.set(x.id, (!r || (x.updated || "") >= (r.updated || "")) ? x : r);
+    });
+    return [...map.values()];
+  }
+  let syncTimer = null, syncing = false;
+  let syncStatus = "idle"; // idle | syncing | synced | error
+  function syncSoon() { if (!prefs.syncCode) return; clearTimeout(syncTimer); syncTimer = setTimeout(runSync, 3000); }
+  async function runSync() {
+    if (!prefs.syncCode || syncing) return;
+    syncing = true; syncStatus = "syncing"; renderSyncStatus();
+    try {
+      const rows = await syncRpc("sync_pull", { p_code: prefs.syncCode });
+      const remote = rows && rows[0] ? rows[0].data : null;
+      let changed = false;
+      if (remote) {
+        const mergedNotes = mergeById(notes, remote.notes);
+        if (JSON.stringify(mergedNotes) !== JSON.stringify(notes)) { notes = mergedNotes; changed = true; }
+        const days = { ...(stats.days || {}) };
+        Object.entries((remote.stats && remote.stats.days) || {}).forEach(([k, v]) => { days[k] = Math.max(days[k] || 0, v); });
+        const xp = Math.max(stats.xp || 0, (remote.stats && remote.stats.xp) || 0);
+        if (JSON.stringify(days) !== JSON.stringify(stats.days || {}) || xp !== stats.xp) { stats = { days, xp }; changed = true; }
+        const mergedTpl = mergeById(templates, remote.templates);
+        if (JSON.stringify(mergedTpl) !== JSON.stringify(templates)) { templates = mergedTpl; changed = true; }
+      }
+      if (changed) {
+        persistSafe(); saveStats(); saveTemplates();
+        renderNav(); renderList(); renderStreak(); updatePetTabBadge();
+        // The open note's own editor is left alone so a merge landing
+        // mid-keystroke can't yank the cursor or clobber what's being typed.
+      }
+      if (changed || !remote) await syncRpc("sync_push", { p_code: prefs.syncCode, p_data: syncBlob() });
+      prefs.syncedAt = now(); savePrefs();
+      syncStatus = "synced";
+    } catch (e) {
+      syncStatus = "error";
+    } finally {
+      syncing = false; renderSyncStatus();
+    }
+  }
+  function renderSyncStatus() {
+    const el = $("#syncStatus"); if (!el) return;
+    el.textContent = syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "⚠️ Couldn't reach sync — will retry" : prefs.syncedAt ? "✅ Synced " + timeAgo(prefs.syncedAt) : "Not synced yet";
+  }
   // On a new day/week, wipe the checkmarks of recurring checklists so the routine is fresh.
   function resetRecurring() {
     let changed = false;
@@ -2035,7 +2117,7 @@
   }
 
   // ---- photos (stored on the note as resized JPEG data URIs, on-device) ----
-  function persistSafe() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); return true; } catch (e) { return false; } }
+  function persistSafe() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); syncSoon(); return true; } catch (e) { return false; } }
   // Downscale in-browser so photos fit in local storage and load fast.
   function fileToScaledDataURL(file, maxDim, quality) {
     maxDim = maxDim || 1400; quality = quality || 0.72;
@@ -2413,6 +2495,23 @@
           <button class="btn-sm" id="remPerm" style="align-self:flex-start"></button>
           <p class="fineprint" style="margin:0.4rem 0 0">Get an alert when a note's ⏰ reminder time hits. Reliable while SquirrelNote is open or added to your home screen; overdue reminders also ping when you reopen it.</p>
         </div>
+        <div><div class="group-label">Sync across devices</div>${
+          prefs.syncCode
+            ? `<div class="sync-code" id="syncCodeBox">${esc(prefs.syncCode)}</div>
+               <div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
+                 <button class="btn-sm" id="syncCopy">⧉ Copy code</button>
+                 <button class="btn-sm" id="syncNow">↻ Sync now</button>
+               </div>
+               <p class="fineprint" id="syncStatus" style="margin:.5rem 0 0"></p>
+               <button class="btn-sm" id="syncOff" style="align-self:flex-start;margin-top:.5rem;color:#c0392b">Turn off sync on this device</button>
+               <p class="fineprint" style="margin:.4rem 0 0">Enter this same code on another device to link it too. Turning sync off here only stops <em>this</em> device — your notes stay backed up under this code.</p>`
+            : `<p class="fineprint" style="margin:0 0 .5rem">Get a code, then enter that same code on your other device — no account, no password.</p>
+               <button class="btn-sm accent" id="syncEnable" style="align-self:flex-start">🔗 Get a sync code</button>
+               <div style="display:flex;gap:.4rem;margin-top:.6rem">
+                 <input class="folder-in" id="syncJoinInput" placeholder="Or enter a code from another device" style="flex:1" />
+                 <button class="btn-sm" id="syncJoinBtn">Join</button>
+               </div>`
+        }</div>
         <button class="btn-sm" id="resetPrefs" style="align-self:flex-start">↺ Reset to defaults</button>
         <p class="fineprint">Notes &amp; settings live in this browser only. Grab an <strong>Export backup</strong> from the sidebar to keep them safe.</p>
       </div>`;
@@ -2433,6 +2532,23 @@
       setLbl();
       rp.onclick = async () => { await requestReminderPerm(); setLbl(); };
     }
+    const syncEnable = $("#syncEnable");
+    if (syncEnable) syncEnable.onclick = () => { prefs.syncCode = genSyncCode(); prefs.syncedAt = null; savePrefs(); runSync(); openSettings(); };
+    const syncJoinBtn = $("#syncJoinBtn");
+    if (syncJoinBtn) syncJoinBtn.onclick = () => {
+      const code = ($("#syncJoinInput").value || "").trim().toUpperCase();
+      if (!code) return;
+      prefs.syncCode = code; prefs.syncedAt = null; savePrefs(); runSync(); openSettings();
+    };
+    const syncCopy = $("#syncCopy");
+    if (syncCopy) syncCopy.onclick = async () => {
+      try { await navigator.clipboard.writeText(prefs.syncCode); toast("Code copied 📋"); } catch (e) { toast("Couldn't copy — select and copy it manually"); }
+    };
+    const syncNowBtn = $("#syncNow");
+    if (syncNowBtn) syncNowBtn.onclick = () => runSync();
+    const syncOff = $("#syncOff");
+    if (syncOff) syncOff.onclick = () => { prefs.syncCode = null; prefs.syncedAt = null; savePrefs(); openSettings(); };
+    if (prefs.syncCode) renderSyncStatus();
     root.querySelectorAll("[data-ct]").forEach((el) => el.addEventListener("click", () => {
       prefs.colorByTag = el.dataset.ct === "on"; savePrefs(); renderList(); renderEditor(); openSettings();
     }));
@@ -2596,7 +2712,7 @@
   window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); });
   // Auto-save on leave: flush pending writes the moment the app is hidden,
   // backgrounded, or closed — so nothing typed in the last second is lost.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); else runSync(); });
   window.addEventListener("pagehide", flushSave);
   window.addEventListener("beforeunload", flushSave);
   window.addEventListener("blur", flushSave);
@@ -2646,6 +2762,7 @@
   applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak(); renderAffirmation(); updatePetTabBadge();
   scheduleReminders();
   maybeWeeklyWins();
+  if (prefs.syncCode) runSync();
   // Direct open (outside the iframe) with ?capture=1 or #capture pops capture.
   if (/[?&]capture=1/.test(location.search) || location.hash === "#capture") openQuickCapture();
 })();

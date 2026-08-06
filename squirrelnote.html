@@ -234,9 +234,19 @@
   .tag button:hover { opacity: 1; }
   .tag-add { width: 66px; background: var(--app-bg); border: 1px solid var(--border); border-radius: 99px; padding: 0.1rem 0.55rem; font-size: 0.77rem; }
   .tag-add:focus { outline: none; border-color: var(--accent); }
-  .note-body { min-height: 320px; width: 100%; resize: vertical; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  .note-body { min-height: 320px; width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 1.1rem 1.2rem; font-family: var(--body-font); font-size: 0.97rem; line-height: 1.7; white-space: pre-wrap; box-shadow: var(--shadow-sm); }
   .note-body:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .note-body:empty:before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+  .note-body h2 { font-family: var(--serif); font-size: 1.32rem; font-weight: 800; margin: 0.2rem 0; line-height: 1.35; }
+  .note-body h3 { font-family: var(--serif); font-size: 1.1rem; font-weight: 800; margin: 0.2rem 0; line-height: 1.35; }
+  .note-body ul, .note-body ol { margin: 0.2rem 0 0.2rem 1.3rem; padding: 0; }
+  .note-body li { margin: 0.1rem 0; }
+  .rtbar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .rtbar button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); width: 2rem; height: 2rem;
+    display: grid; place-items: center; font-size: 0.85rem; color: var(--fg); transition: background 0.12s, border-color 0.12s, transform 0.12s var(--ease-spring); }
+  .rtbar button:active { transform: scale(0.92); }
+  .rtbar button.on { background: var(--accent-soft); border-color: var(--accent); color: color-mix(in srgb, var(--accent) 75%, var(--fg)); }
   .banner { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 70%, var(--fg)); border-radius: var(--radius); padding: 0.55rem 0.85rem; font-size: 0.8rem; font-weight: 500; }
 
   /* checklist */
@@ -1584,7 +1594,7 @@
         if (filter.tag && !(n.tags || []).includes(filter.tag)) return false;
       }
       if (q) {
-        const hay = (n.title + " " + n.content + " " + (n.items || []).map((i) => i.text).join(" ") + " " + (n.tags || []).join(" ")).toLowerCase();
+        const hay = (n.title + " " + stripHtml(n.content) + " " + (n.items || []).map((i) => i.text).join(" ") + " " + (n.tags || []).join(" ")).toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -1719,9 +1729,69 @@
   // An item is done when it has no sub-steps and is checked, or all its
   // sub-steps are checked. Sub-steps ("break it down") nest one level.
   function itemDone(it) { return (it.sub && it.sub.length) ? it.sub.every((s) => s.checked) : !!it.checked; }
+  // ---- rich text (note body only — checklists are untouched) ----
+  // Content is stored as a small allowed-tag HTML subset. Anything outside
+  // the allowlist (script tags, event-handler attributes, pasted styling) is
+  // stripped on every save AND on import, so it's safe to feed straight back
+  // into innerHTML wherever it's shown.
+  const RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, H2: 1, H3: 1, UL: 1, OL: 1, LI: 1, BR: 1, DIV: 1, P: 1 };
+  function sanitizeRichHTML(html) {
+    // Parsed inside a <template> — its content is a genuinely inert
+    // DocumentFragment per spec, so an <img onerror> or similar can't fire
+    // while we're still walking the tree to strip it (a plain, unattached
+    // div still lets the browser attempt the image fetch and fire onerror).
+    const tpl = document.createElement("template");
+    tpl.innerHTML = String(html || "");
+    const root = tpl.content;
+    (function clean(node) {
+      let child = node.firstChild;
+      while (child) {
+        if (child.nodeType === 1) {
+          if (RICH_TAGS[child.tagName]) {
+            for (const a of [...child.attributes]) child.removeAttribute(a.name);
+            clean(child);
+            child = child.nextSibling;
+          } else {
+            const next = child.nextSibling, first = child.firstChild;
+            while (child.firstChild) node.insertBefore(child.firstChild, child);
+            node.removeChild(child);
+            child = first || next;
+          }
+        } else if (child.nodeType === 3) {
+          child = child.nextSibling;
+        } else {
+          const rm = child; child = child.nextSibling; node.removeChild(rm);
+        }
+      }
+    })(root);
+    const out = document.createElement("div");
+    out.appendChild(root);
+    return out.innerHTML;
+  }
+  // Plain-text search/preview corpus from rich HTML — block-level tags become
+  // spaces so words from different lines don't run together.
+  function stripHtml(html) {
+    return String(html || "")
+      .replace(/<(br|\/div|\/p|\/li|\/h2|\/h3)\s*\/?>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  // Notes saved before rich text shipped are plain strings with real newline
+  // characters — wrap each line in its own <div> so they keep displaying as
+  // separate lines once the editor becomes a contenteditable.
+  function legacyPlainToHtml(text) {
+    if (!text || !text.trim()) return "";
+    return text.split("\n").map((line) => `<div>${line ? esc(line) : "<br>"}</div>`).join("");
+  }
+  function richInitialHTML(n) {
+    if (!n.content) return "";
+    if (/<(b|strong|i|em|h2|h3|ul|ol|li|br|div|p)[\s>]/i.test(n.content)) return sanitizeRichHTML(n.content);
+    return legacyPlainToHtml(n.content);
+  }
   function preview(n) {
     if (n.kind === "checklist") { const done = (n.items || []).filter(itemDone).length; return (n.items || []).length ? done + " of " + n.items.length + " done" : "Empty checklist"; }
-    return n.content.trim().slice(0, 100) || "Empty note";
+    return stripHtml(n.content).slice(0, 100) || "Empty note";
   }
 
   const ACORN = (on) => `<svg class="acorn${on ? " on" : ""}" viewBox="0 0 24 24" aria-hidden="true"><path class="cap" d="M4.4 10 C4.4 6.1 7.8 3.7 12 3.7 C16.2 3.7 19.6 6.1 19.6 10 C19.6 10.7 19 11.1 18.3 11.1 L5.7 11.1 C5 11.1 4.4 10.7 4.4 10 Z"/><path class="stem" d="M12 3.7 V1.7"/><path class="nut" d="M6 11.1 C6 15.8 8.4 20.3 12 20.3 C15.6 20.3 18 15.8 18 11.1 Z"/></svg>`;
@@ -1745,7 +1815,8 @@
         ? `<div class="cl">${shown.map((it) => `<div class="cl-row ${itemDone(it) ? "done" : ""}"><span class="cbx" data-cardtoggle="${it.id}">${ACORN(itemDone(it))}</span><span class="t">${esc(it.text) || "…"}${(it.sub && it.sub.length) ? ` <span style="opacity:.5">(${it.sub.filter((s) => s.checked).length}/${it.sub.length})</span>` : ""}</span></div>`).join("")}</div>${items.length > 6 ? `<div class="more">+ ${items.length - 6} more</div>` : ""}`
         : `<div class="card-text" style="opacity:.6">Empty checklist</div>`;
     } else {
-      body = n.content.trim() ? `<div class="card-text">${esc(n.content.trim())}</div>` : `<div class="card-text" style="opacity:.55">Empty note</div>`;
+      const txt = stripHtml(n.content);
+      body = txt ? `<div class="card-text">${esc(txt)}</div>` : `<div class="card-text" style="opacity:.55">Empty note</div>`;
     }
     const tags = (n.tags || []).length ? `<div class="card-tags">${n.tags.slice(0, 4).map((t) => `<span class="minitag" style="background:color-mix(in srgb, ${tagColor(t)} 32%, transparent);color:color-mix(in srgb, ${tagColor(t)} 55%, var(--fg))">#${esc(t)}</span>`).join("")}</div>` : "";
     const cphoto = (n.photos && n.photos.length)
@@ -2034,7 +2105,7 @@
     let shown = false;
     try {
       if (window.Notification && Notification.permission === "granted") {
-        new Notification("⏰ " + title, { body: note.kind === "checklist" ? preview(note) : (note.content || "").slice(0, 120), tag: "sn-" + note.id });
+        new Notification("⏰ " + title, { body: note.kind === "checklist" ? preview(note) : stripHtml(note.content).slice(0, 120), tag: "sn-" + note.id });
         shown = true;
       }
     } catch (e) {}
@@ -2059,10 +2130,80 @@
   function updateCard(id) { refreshCard(id); }
   function flashSaving() { const s = $("#saved"); if (!s) return; s.innerHTML = "Saving…"; clearTimeout(flashSaving._t); flashSaving._t = setTimeout(() => { s.innerHTML = '<span class="dot"></span>Saved'; }, 500); }
 
+  const RICH_BTNS = [
+    { cmd: "bold", label: "<b>B</b>", title: "Bold" },
+    { cmd: "italic", label: "<i>I</i>", title: "Italic" },
+    { cmd: "h2", label: "H", title: "Heading" },
+    { cmd: "ul", label: "☰", title: "Bullet list" },
+    { cmd: "ol", label: "1.", title: "Numbered list" },
+  ];
+  function richCmd(cmd) {
+    if (cmd === "bold") document.execCommand("bold");
+    else if (cmd === "italic") document.execCommand("italic");
+    else if (cmd === "ul") document.execCommand("insertUnorderedList");
+    else if (cmd === "ol") document.execCommand("insertOrderedList");
+    else if (cmd === "h2") {
+      const on = (document.queryCommandValue("formatBlock") || "").toLowerCase() === "h2";
+      document.execCommand("formatBlock", false, on ? "P" : "H2");
+    }
+  }
+  function updateRichToolbar() {
+    const bar = $("#rtBar"); if (!bar) return;
+    const isH2 = (document.queryCommandValue("formatBlock") || "").toLowerCase() === "h2";
+    bar.querySelectorAll("[data-cmd]").forEach((btn) => {
+      const cmd = btn.dataset.cmd;
+      let on = false;
+      try {
+        if (cmd === "bold") on = document.queryCommandState("bold");
+        else if (cmd === "italic") on = document.queryCommandState("italic");
+        else if (cmd === "ul") on = document.queryCommandState("insertUnorderedList");
+        else if (cmd === "ol") on = document.queryCommandState("insertOrderedList");
+        else if (cmd === "h2") on = isH2;
+      } catch (e) {}
+      btn.classList.toggle("on", on);
+    });
+  }
   function renderNoteBody(n) {
-    $("#body").innerHTML = `<textarea class="note-body" id="noteBody" placeholder="Start writing…">${esc(n.content)}</textarea>`;
-    const ta = $("#noteBody");
-    ta.addEventListener("input", () => { patch(n.id, { content: ta.value }); flashSaving(); updateCard(n.id, ".card-sub", preview(n)); });
+    const barHTML = RICH_BTNS.map((b) => `<button type="button" data-cmd="${b.cmd}" title="${b.title}">${b.label}</button>`).join("");
+    $("#body").innerHTML = `<div class="rtbar" id="rtBar">${barHTML}</div>
+      <div class="note-body" id="noteBody" contenteditable="true" data-placeholder="Start writing…">${richInitialHTML(n)}</div>`;
+    const body = $("#noteBody");
+    const save = () => {
+      const clean = sanitizeRichHTML(body.innerHTML);
+      patch(n.id, { content: clean }); flashSaving(); updateCard(n.id, ".card-sub", preview(n));
+    };
+    body.addEventListener("input", save);
+    // Pasted HTML can carry live elements (e.g. <img onerror>) that fire the
+    // instant they land in the connected DOM — before any cleanup runs. Force
+    // paste down to plain text so nothing but escaped characters ever gets
+    // inserted; formatting stays a toolbar-only, typed-content thing.
+    body.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+      document.execCommand("insertText", false, text);
+    });
+    // Same reasoning as paste — a drag-dropped HTML fragment can carry live
+    // elements too.
+    body.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const text = e.dataTransfer ? e.dataTransfer.getData("text/plain") : "";
+      if (text) document.execCommand("insertText", false, text);
+    });
+    body.addEventListener("keyup", updateRichToolbar);
+    body.addEventListener("mouseup", updateRichToolbar);
+    body.addEventListener("focus", updateRichToolbar);
+    $("#rtBar").querySelectorAll("[data-cmd]").forEach((btn) => btn.addEventListener("mousedown", (e) => {
+      e.preventDefault(); // keep the selection inside the editable area
+      if (document.activeElement !== body) {
+        body.focus();
+        const sel = window.getSelection(), range = document.createRange();
+        range.selectNodeContents(body); range.collapse(false);
+        sel.removeAllRanges(); sel.addRange(range);
+      }
+      richCmd(btn.dataset.cmd);
+      save();
+      updateRichToolbar();
+    }));
   }
 
   const openSteps = new Set(); // which items have their "break it down" panel open
@@ -2325,7 +2466,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: n.content || "", items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none", lastReset: n.lastReset || null, streakLog: (n.streakLog && typeof n.streakLog === "object") ? n.streakLog : {}, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: sanitizeRichHTML(n.content || ""), items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none", lastReset: n.lastReset || null, streakLog: (n.streakLog && typeof n.streakLog === "object") ? n.streakLog : {}, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [

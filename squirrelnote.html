@@ -140,7 +140,7 @@
   .btn-primary:hover { box-shadow: 0 12px 26px -8px var(--accent); }
   .btn-soft { color: var(--rail-fg); background: rgba(255,255,255,0.07); }
   .btn-soft:hover { background: rgba(255,255,255,0.12); }
-  #nav { position: relative; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.12rem; }
+  #nav { position: relative; flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.12rem; }
   .nav-item { width: 100%; text-align: left; border-radius: 11px; padding: 0.46rem 0.6rem; font-size: 0.9rem;
     color: var(--rail-muted); display: flex; align-items: center; gap: 0.55rem; transition: background 0.14s, color 0.14s;
     overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -603,7 +603,8 @@
   #railScrim { display: none; }
   #search { min-width: 0; }
 
-  #rail { position: fixed; top: 0; left: 0; z-index: 30; width: 250px; max-width: 84vw; height: 100%; transform: translateX(-110%); transition: transform 0.24s var(--ease-spring); }
+  #rail { position: fixed; top: 0; left: 0; z-index: 30; width: 250px; max-width: 84vw; height: 100%; transform: translateX(-110%); transition: transform 0.24s var(--ease-spring);
+    overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: calc(0.9rem + env(safe-area-inset-bottom)); }
   #app.rail-open #rail { transform: none; box-shadow: var(--shadow-lg); }
   #app.rail-open #railScrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0,0,0,0.4); animation: fade 0.18s ease; }
 

@@ -242,11 +242,25 @@
   .note-body h3 { font-family: var(--serif); font-size: 1.1rem; font-weight: 800; margin: 0.2rem 0; line-height: 1.35; }
   .note-body ul, .note-body ol { margin: 0.2rem 0 0.2rem 1.3rem; padding: 0; }
   .note-body li { margin: 0.1rem 0; }
-  .rtbar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .note-body mark, .card-text mark { background: none; color: inherit; border-radius: 3px; padding: 0 0.1em; }
+  .rtbar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; position: relative; }
   .rtbar button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); width: 2rem; height: 2rem;
     display: grid; place-items: center; font-size: 0.85rem; color: var(--fg); transition: background 0.12s, border-color 0.12s, transform 0.12s var(--ease-spring); }
   .rtbar button:active { transform: scale(0.92); }
   .rtbar button.on { background: var(--accent-soft); border-color: var(--accent); color: color-mix(in srgb, var(--accent) 75%, var(--fg)); }
+  .rtbar .rt-strike { text-decoration: line-through; }
+  .hlpop { position: absolute; top: calc(100% + 0.3rem); left: 0; z-index: 4; display: flex; gap: 0.35rem; align-items: center;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0.45rem; box-shadow: var(--shadow-lg); }
+  .hlswatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; box-shadow: inset 0 0 0 1.5px var(--border); flex-shrink: 0;
+    display: grid; place-items: center; font-size: 0.6rem; color: var(--muted); transition: transform 0.12s var(--ease-spring); }
+  .hlswatch:active { transform: scale(0.9); }
+  .note-body mark.hl-1, .card-text mark.hl-1 { background: color-mix(in srgb, #e57373 45%, transparent); }
+  .note-body mark.hl-2, .card-text mark.hl-2 { background: color-mix(in srgb, #f0a35e 45%, transparent); }
+  .note-body mark.hl-3, .card-text mark.hl-3 { background: color-mix(in srgb, #e6c34a 45%, transparent); }
+  .note-body mark.hl-4, .card-text mark.hl-4 { background: color-mix(in srgb, #7fb56e 45%, transparent); }
+  .note-body mark.hl-5, .card-text mark.hl-5 { background: color-mix(in srgb, #6fb0d4 45%, transparent); }
+  .note-body mark.hl-6, .card-text mark.hl-6 { background: color-mix(in srgb, #9b8ad4 45%, transparent); }
+  .note-body mark.hl-7, .card-text mark.hl-7 { background: color-mix(in srgb, #d98bb0 45%, transparent); }
   .banner { background: var(--accent-soft); color: color-mix(in srgb, var(--accent) 70%, var(--fg)); border-radius: var(--radius); padding: 0.55rem 0.85rem; font-size: 0.8rem; font-weight: 500; }
 
   /* checklist */
@@ -704,7 +718,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-09.4-settings-tab";
+  const APP_BUILD = "2026-08-09.5-rich-text-v2";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1823,7 +1837,12 @@
   // the allowlist (script tags, event-handler attributes, pasted styling) is
   // stripped on every save AND on import, so it's safe to feed straight back
   // into innerHTML wherever it's shown.
-  const RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, H2: 1, H3: 1, UL: 1, OL: 1, LI: 1, BR: 1, DIV: 1, P: 1 };
+  const RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, STRIKE: 1, S: 1, H2: 1, H3: 1, UL: 1, OL: 1, LI: 1, BR: 1, DIV: 1, P: 1, MARK: 1 };
+  // MARK is the one tag allowed a "class" attribute — for the highlight
+  // colors below — and only a value matching this exact pattern survives.
+  // Everything else (style, onerror, href, arbitrary class names, ...) is
+  // stripped from every tag, allowed or not.
+  const HL_CLASS_RE = /^hl-[1-7]$/;
   function sanitizeRichHTML(html) {
     // Parsed inside a <template> — its content is a genuinely inert
     // DocumentFragment per spec, so an <img onerror> or similar can't fire
@@ -1837,7 +1856,8 @@
       while (child) {
         if (child.nodeType === 1) {
           if (RICH_TAGS[child.tagName]) {
-            for (const a of [...child.attributes]) child.removeAttribute(a.name);
+            const keepClass = child.tagName === "MARK" && HL_CLASS_RE.test(child.getAttribute("class") || "");
+            for (const a of [...child.attributes]) { if (keepClass && a.name === "class") continue; child.removeAttribute(a.name); }
             clean(child);
             child = child.nextSibling;
           } else {
@@ -2222,32 +2242,114 @@
   const RICH_BTNS = [
     { cmd: "bold", label: "<b>B</b>", title: "Bold" },
     { cmd: "italic", label: "<i>I</i>", title: "Italic" },
-    { cmd: "h2", label: "H", title: "Heading" },
+    { cmd: "underline", label: "<u>U</u>", title: "Underline" },
+    { cmd: "strike", label: "<span class=\"rt-strike\">S</span>", title: "Strikethrough" },
+    { cmd: "heading", label: "H", title: "Heading (tap again for a smaller size)" },
     { cmd: "ul", label: "☰", title: "Bullet list" },
     { cmd: "ol", label: "1.", title: "Numbered list" },
+    { cmd: "highlight", label: "🖍️", title: "Highlight color" },
+    { cmd: "clear", label: "🧹", title: "Clear formatting" },
   ];
-  function richCmd(cmd) {
+  // The highlight palette mirrors the app's own note-color palette (minus
+  // "no color"), so highlighted text feels like part of the same system
+  // instead of a separate picker with its own colors to learn.
+  const HL_PALETTE = NOTE_COLORS.filter(Boolean);
+  const hexToRgb = (hex) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+  // execCommand's own hiliteColor only knows about the <span> it just made —
+  // it's blind to a <mark> that was saved earlier and reopened, so "clear"
+  // needs its own pass over whatever the current selection actually touches.
+  function clearHighlightInSelection(body) {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    body.querySelectorAll("mark").forEach((mark) => {
+      if (range.intersectsNode(mark)) { while (mark.firstChild) mark.parentNode.insertBefore(mark.firstChild, mark); mark.remove(); }
+    });
+  }
+  // Converts execCommand's freeform background-color styling into the small
+  // closed set of <mark class="hl-N"> the sanitizer allows through. When the
+  // selection was already wrapped in exactly one other tag (say <u>), the
+  // browser sets the style directly on THAT tag instead of adding a <span> —
+  // so this checks every styled element, not just spans, and nests a <mark>
+  // inside whatever carried the color rather than replacing it, so other
+  // formatting on the same text survives too. A bare, now-empty <span>
+  // wrapper is left for sanitizeRichHTML's normal unwrap pass to clean up,
+  // since SPAN was never in the allowed-tags list.
+  function normalizeHighlightSpans(body) {
+    body.querySelectorAll("[style]").forEach((el) => {
+      const idx = HL_PALETTE.findIndex((c) => hexToRgb(c) === el.style.backgroundColor);
+      el.style.removeProperty("background-color");
+      if (!el.getAttribute("style")) el.removeAttribute("style");
+      if (idx < 0) return;
+      const mark = document.createElement("mark");
+      mark.className = "hl-" + (idx + 1);
+      while (el.firstChild) mark.appendChild(el.firstChild);
+      el.appendChild(mark);
+    });
+  }
+  function applyHighlight(idx, body) {
+    // Always strip any existing <mark> in the selection first — otherwise
+    // picking a new color on already-highlighted text nests one mark inside
+    // another instead of replacing the color.
+    clearHighlightInSelection(body);
+    if (idx) { document.execCommand("hiliteColor", false, hexToRgb(HL_PALETTE[idx - 1])); normalizeHighlightSpans(body); }
+  }
+  function closeHlPopover() { const p = $(".hlpop"); if (p) p.remove(); }
+  function openHlPopover(body) {
+    const bar = $("#rtBar");
+    if (bar.querySelector(".hlpop")) { closeHlPopover(); return; }
+    const pop = document.createElement("div");
+    pop.className = "hlpop";
+    pop.innerHTML = `<button type="button" class="hlswatch" data-hlclear title="No highlight">∅</button>` +
+      HL_PALETTE.map((c, i) => `<button type="button" class="hlswatch" data-hl="${i + 1}" style="background:${c}" title="Highlight"></button>`).join("");
+    bar.appendChild(pop);
+    pop.querySelectorAll("[data-hl], [data-hlclear]").forEach((sw) => sw.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      applyHighlight(sw.dataset.hl ? Number(sw.dataset.hl) : null, body);
+      closeHlPopover();
+      body.dispatchEvent(new Event("input", { bubbles: true }));
+      updateRichToolbar();
+    }));
+    setTimeout(() => {
+      const onOutside = (e) => {
+        if (pop.contains(e.target)) return;
+        closeHlPopover();
+        document.removeEventListener("mousedown", onOutside, true);
+      };
+      document.addEventListener("mousedown", onOutside, true);
+    }, 0);
+  }
+  function richCmd(cmd, body) {
     if (cmd === "bold") document.execCommand("bold");
     else if (cmd === "italic") document.execCommand("italic");
+    else if (cmd === "underline") document.execCommand("underline");
+    else if (cmd === "strike") document.execCommand("strikeThrough");
     else if (cmd === "ul") document.execCommand("insertUnorderedList");
     else if (cmd === "ol") document.execCommand("insertOrderedList");
-    else if (cmd === "h2") {
-      const on = (document.queryCommandValue("formatBlock") || "").toLowerCase() === "h2";
-      document.execCommand("formatBlock", false, on ? "P" : "H2");
+    else if (cmd === "heading") {
+      const cur = (document.queryCommandValue("formatBlock") || "").toLowerCase();
+      document.execCommand("formatBlock", false, cur === "h2" ? "H3" : cur === "h3" ? "P" : "H2");
+    } else if (cmd === "clear") {
+      document.execCommand("removeFormat");
+      clearHighlightInSelection(body);
+    } else if (cmd === "highlight") {
+      openHlPopover(body);
     }
   }
   function updateRichToolbar() {
     const bar = $("#rtBar"); if (!bar) return;
-    const isH2 = (document.queryCommandValue("formatBlock") || "").toLowerCase() === "h2";
+    const formatBlock = (document.queryCommandValue("formatBlock") || "").toLowerCase();
     bar.querySelectorAll("[data-cmd]").forEach((btn) => {
       const cmd = btn.dataset.cmd;
       let on = false;
       try {
         if (cmd === "bold") on = document.queryCommandState("bold");
         else if (cmd === "italic") on = document.queryCommandState("italic");
+        else if (cmd === "underline") on = document.queryCommandState("underline");
+        else if (cmd === "strike") on = document.queryCommandState("strikeThrough");
         else if (cmd === "ul") on = document.queryCommandState("insertUnorderedList");
         else if (cmd === "ol") on = document.queryCommandState("insertOrderedList");
-        else if (cmd === "h2") on = isH2;
+        else if (cmd === "heading") on = formatBlock === "h2" || formatBlock === "h3";
       } catch (e) {}
       btn.classList.toggle("on", on);
     });
@@ -2283,13 +2385,14 @@
     body.addEventListener("focus", updateRichToolbar);
     $("#rtBar").querySelectorAll("[data-cmd]").forEach((btn) => btn.addEventListener("mousedown", (e) => {
       e.preventDefault(); // keep the selection inside the editable area
+      if (btn.dataset.cmd !== "highlight") closeHlPopover();
       if (document.activeElement !== body) {
         body.focus();
         const sel = window.getSelection(), range = document.createRange();
         range.selectNodeContents(body); range.collapse(false);
         sel.removeAllRanges(); sel.addRange(range);
       }
-      richCmd(btn.dataset.cmd);
+      richCmd(btn.dataset.cmd, body);
       save();
       updateRichToolbar();
     }));

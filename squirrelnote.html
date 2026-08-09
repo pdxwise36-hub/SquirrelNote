@@ -699,6 +699,11 @@
     if (!m) { m = document.createElement("meta"); m.setAttribute("name", "viewport"); document.head.appendChild(m); }
     m.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
   })();
+  // Bumped by hand on every shipped change — shown in Settings so it's easy
+  // to tell whether a device is actually running the latest version or
+  // stuck on something cached (browser cache, CDN lag, a stale home-screen
+  // install), instead of guessing from symptoms alone.
+  const APP_BUILD = "2026-08-09.3-sync-sidebar-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2515,6 +2520,8 @@
         }</div>
         <button class="btn-sm" id="resetPrefs" style="align-self:flex-start">↺ Reset to defaults</button>
         <p class="fineprint">Notes &amp; settings live in this browser only. Grab an <strong>Export backup</strong> from the sidebar to keep them safe.</p>
+        <button class="btn-sm" id="forceRefresh" style="align-self:flex-start">↻ Force refresh (clear cached copy)</button>
+        <p class="fineprint" style="opacity:.6">Version ${esc(APP_BUILD)} · if something looks out of date, tap Force refresh above.</p>
       </div>`;
     $("#scrim").onclick = closeSettings; $("#closeSet").onclick = closeSettings;
     root.querySelectorAll("[data-seg]").forEach((el) => el.addEventListener("click", () => { prefs[el.dataset.seg] = el.dataset.val; savePrefs(); applyPrefs(); renderList(); openSettings(); }));
@@ -2564,6 +2571,12 @@
     }));
     const ae = $("#affEdit"); if (ae) ae.onclick = openAffirmEditor;
     $("#resetPrefs").onclick = () => { prefs = { ...DEFAULT_PREFS }; savePrefs(); applyPrefs(); renderList(); openSettings(); };
+    const forceRefresh = $("#forceRefresh");
+    if (forceRefresh) forceRefresh.onclick = () => {
+      flushSave();
+      try { localStorage.removeItem("squirrelnote.app.html.v1"); } catch (e) {}
+      try { (window.top || window).location.reload(); } catch (e) { location.reload(); }
+    };
   }
   function seg(key, opts) { return `<div class="dseg">${opts.map(([v, l]) => `<button class="${prefs[key] === v ? "on" : ""}" data-seg="${key}" data-val="${v}">${l}</button>`).join("")}</div>`; }
   function closeSettings() { stopFocusTimer(); saveBrainDumpNow(); $("#modalRoot").innerHTML = ""; }

@@ -727,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.10-camera-capture";
+  const APP_BUILD = "2026-08-10.11-list-numbering-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2019,6 +2019,37 @@
   // URL (no tracking-pixel/exfiltration risk) and never anything else that
   // could smuggle script (no javascript:, no inline SVG with <script> in it).
   const SAFE_IMG_SRC_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+  // Inserting an image via execCommand("insertImage") while the cursor is
+  // inside a list item ends that list, drops the image in as its own
+  // sibling, and starts a NEW list right after it — so what should be item
+  // 2 renumbers itself from 1, with the photo sitting as a break between
+  // the two <ol>/<ul> elements. Two lists of the same type with nothing but
+  // photos between them are never intentional (there's no toolbar action
+  // that creates two back-to-back lists on purpose), so this folds any such
+  // photos onto the end of the first list's last item and merges the
+  // second list back in — a safe repair, not a guess.
+  function mergeAdjacentLists(root) {
+    let child = root.firstChild;
+    while (child) {
+      if (child.nodeType === 1 && (child.tagName === "OL" || child.tagName === "UL")) {
+        const tag = child.tagName;
+        let bridge = child.nextSibling;
+        const strays = [];
+        while (bridge && bridge.nodeType === 1 && bridge.tagName === "IMG") {
+          strays.push(bridge);
+          bridge = bridge.nextSibling;
+        }
+        if (bridge && bridge.nodeType === 1 && bridge.tagName === tag) {
+          const lastLi = child.lastElementChild;
+          strays.forEach((img) => (lastLi || child).appendChild(img));
+          while (bridge.firstChild) child.appendChild(bridge.firstChild);
+          bridge.remove();
+          continue; // re-check from the same list in case there's a third one to fold in
+        }
+      }
+      child = child.nextSibling;
+    }
+  }
   function sanitizeRichHTML(html) {
     // Parsed inside a <template> — its content is a genuinely inert
     // DocumentFragment per spec, so an <img onerror> or similar can't fire
@@ -2060,6 +2091,7 @@
         }
       }
     })(root);
+    mergeAdjacentLists(root);
     const out = document.createElement("div");
     out.appendChild(root);
     return out.innerHTML;
@@ -2734,6 +2766,9 @@
           sel2.addRange(r);
         }
         document.execCommand("insertImage", false, dataURL);
+        // Fix up right away (not just on next save/reopen) so numbering
+        // looks right immediately if that insert split a list in two.
+        mergeAdjacentLists(body);
         body.dispatchEvent(new Event("input", { bubbles: true }));
       } catch (e) {
         toast("⚠️ Couldn't add that photo");

@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.2-push-self-heal";
+  const APP_BUILD = "2026-08-10.3-push-diagnostics";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2349,8 +2349,16 @@
   // (code, endpoint), so calling this again for a subscription the server
   // already has is a harmless no-op — safe to call opportunistically.
   function registerPushSubscription(s, retrying) {
-    const call = () => syncRpc("push_subscribe", { p_code: prefs.syncCode, p_endpoint: s.endpoint, p_p256dh: s.p256dh, p_auth: s.auth, p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
-    return call()
+    // Wrapped in Promise.resolve().then(...) so that ANY failure — including
+    // a synchronous throw while building the request, not just a network
+    // rejection — becomes a normal rejected promise instead of an uncaught
+    // exception that silently kills this call with no error anywhere.
+    return Promise.resolve()
+      .then(() => {
+        let tz = "UTC";
+        try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) {}
+        return syncRpc("push_subscribe", { p_code: prefs.syncCode, p_endpoint: s.endpoint, p_p256dh: s.p256dh, p_auth: s.auth, p_tz: tz });
+      })
       .then(() => { pushState = { ...pushState, subscribed: true, endpoint: s.endpoint }; try { pushLblUpdater && pushLblUpdater(); } catch (e2) {} })
       .catch((err) => {
         if (retrying) throw err;
@@ -2368,7 +2376,9 @@
       // and means a one-off failure heals itself next time Settings opens,
       // instead of quietly showing "on" while the server never got told.
       if (msg.subscribed && msg.subscription && prefs.syncCode) {
-        registerPushSubscription(msg.subscription).catch(() => {});
+        // Surfaced (not silent) for now, while this specific failure is
+        // still being diagnosed — it should be rare enough not to nag.
+        registerPushSubscription(msg.subscription).catch((err) => toast("⚠️ Push re-check failed: " + ((err && err.message) || String(err)).slice(0, 80)));
       }
     } else if (msg.type === "sn-push-subscribed") {
       if (msg.subscription && prefs.syncCode) {

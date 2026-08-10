@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-09.6-routine-schedules";
+  const APP_BUILD = "2026-08-10.1-push-notifications";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2325,6 +2325,41 @@
   function fromLocalInput(val) { if (!val) return null; const d = new Date(val); return isNaN(d) ? null : d.toISOString(); }
   function reminderPermission() { try { return (window.Notification && Notification.permission) || "unsupported"; } catch (e) { return "unsupported"; } }
   async function requestReminderPerm() { try { if (window.Notification && Notification.permission === "default") await Notification.requestPermission(); } catch (e) {} }
+
+  // ---- Web Push (routine reminders that arrive even when nothing's open) ----
+  // The actual browser push APIs (service worker, PushManager) can't run in
+  // here — this app is rendered in a srcdoc iframe (see index.html) so it
+  // shares the site's storage, but a srcdoc document has no stable URL to
+  // register a worker under. So the loader page does that part; this talks
+  // to it over postMessage and only stores the resulting subscription.
+  const EMBEDDED = window.parent !== window;
+  let pushState = { supported: null, permission: "default", subscribed: false, endpoint: null };
+  let pushLblUpdater = null;
+  function requestPushStatus() { if (EMBEDDED) try { parent.postMessage({ type: "sn-push-status" }, "*"); } catch (e) {} }
+  function handlePushMessage(e) {
+    if (!e || !e.data || typeof e.data !== "object") return;
+    const msg = e.data;
+    if (msg.type === "sn-push-status") {
+      pushState = { supported: msg.supported, permission: msg.permission || "default", subscribed: !!msg.subscribed, endpoint: msg.endpoint || null };
+    } else if (msg.type === "sn-push-subscribed") {
+      const s = msg.subscription;
+      if (s && prefs.syncCode) {
+        syncRpc("push_subscribe", { p_code: prefs.syncCode, p_endpoint: s.endpoint, p_p256dh: s.p256dh, p_auth: s.auth, p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone })
+          .then(() => { pushState = { ...pushState, subscribed: true, endpoint: s.endpoint }; toast("🔔 Push notifications on"); try { pushLblUpdater && pushLblUpdater(); } catch (e2) {} })
+          .catch(() => toast("⚠️ Couldn't finish enabling push — try again"));
+      }
+      return;
+    } else if (msg.type === "sn-push-unsubscribed") {
+      if (msg.endpoint && prefs.syncCode) syncRpc("push_unsubscribe", { p_code: prefs.syncCode, p_endpoint: msg.endpoint }).catch(() => {});
+      pushState = { ...pushState, subscribed: false, endpoint: null };
+      toast("Push notifications off");
+    } else if (msg.type === "sn-push-error") {
+      toast("⚠️ " + (msg.message || "Push notifications couldn't be set up"));
+    } else {
+      return;
+    }
+    try { pushLblUpdater && pushLblUpdater(); } catch (e2) {}
+  }
   function fireReminder(note) {
     if (!note || note.remindDone) return;
     note.remindDone = true; persistSafe();
@@ -2794,6 +2829,12 @@
                  <button class="btn-sm" id="syncJoinBtn">Join</button>
                </div>`
         }</div>
+        <div><div class="group-label">Push notifications</div>${
+          !prefs.syncCode
+            ? `<p class="fineprint" style="margin:0">Turn on sync above first — push needs a code so it can check your routines while your device is asleep.</p>`
+            : `<button class="btn-sm" id="pushToggle" style="align-self:flex-start"></button>
+               <p class="fineprint" style="margin:.4rem 0 0">Get a routine reminder even with SquirrelNote fully closed. On iPhone/iPad: add SquirrelNote to your Home Screen first (Share ⇒ Add to Home Screen) — Safari only allows this from an installed app, not a regular tab.</p>`
+        }</div>
         <button class="btn-sm" id="resetPrefs" style="align-self:flex-start">↺ Reset to defaults</button>
         <p class="fineprint">Notes &amp; settings live in this browser only. Grab an <strong>Export backup</strong> from the sidebar to keep them safe.</p>
         <button class="btn-sm" id="forceRefresh" style="align-self:flex-start">↻ Force refresh (clear cached copy)</button>
@@ -2815,6 +2856,25 @@
       };
       setLbl();
       rp.onclick = async () => { await requestReminderPerm(); setLbl(); };
+    }
+    const pt = $("#pushToggle");
+    if (pt) {
+      const setPushLbl = () => {
+        if (!EMBEDDED || pushState.supported === false) { pt.textContent = "Not supported in this browser"; pt.disabled = true; }
+        else if (pushState.permission === "denied") { pt.textContent = "🔕 Blocked in browser settings"; pt.disabled = true; }
+        else if (pushState.subscribed) { pt.textContent = "✅ Push on — tap to turn off"; pt.disabled = false; }
+        else { pt.textContent = "🔔 Enable push notifications"; pt.disabled = false; }
+      };
+      setPushLbl();
+      pushLblUpdater = setPushLbl;
+      pt.onclick = async () => {
+        if (pushState.subscribed) { parent.postMessage({ type: "sn-push-unsubscribe" }, "*"); return; }
+        await requestReminderPerm();
+        parent.postMessage({ type: "sn-push-subscribe" }, "*");
+      };
+      requestPushStatus();
+    } else {
+      pushLblUpdater = null;
     }
     const syncEnable = $("#syncEnable");
     if (syncEnable) syncEnable.onclick = () => { prefs.syncCode = genSyncCode(); prefs.syncedAt = null; savePrefs(); runSync(); openSettings(); };
@@ -3004,7 +3064,7 @@
   $("#openSettings").onclick = openSettings;
   // The home-screen "Quick note" shortcut opens the site with ?capture=1; the
   // loader relays that here so we pop the capture box straight open.
-  window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); });
+  window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); else handlePushMessage(e); });
   // Auto-save on leave: flush pending writes the moment the app is hidden,
   // backgrounded, or closed — so nothing typed in the last second is lost.
   document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); else runSync(); });
@@ -3062,6 +3122,7 @@
   scheduleReminders();
   maybeWeeklyWins();
   if (prefs.syncCode) runSync();
+  requestPushStatus();
   // Direct open (outside the iframe) with ?capture=1 or #capture pops capture.
   if (/[?&]capture=1/.test(location.search) || location.hash === "#capture") openQuickCapture();
 })();

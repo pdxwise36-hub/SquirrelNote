@@ -727,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.11-list-numbering-fix";
+  const APP_BUILD = "2026-08-10.12-list-numbering-fix-2";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2050,6 +2050,25 @@
       child = child.nextSibling;
     }
   }
+  // Repairs the OTHER shape this same bug can take: instead of splitting
+  // the list, some browsers give an inserted photo its own <li> — so it
+  // takes up a number of its own instead of just riding along with the
+  // item it was added to. An <li> containing nothing but photo(s) and
+  // whitespace only ever comes from that, never from anything a person
+  // would type on purpose, so it's folded onto the end of the PREVIOUS
+  // item and removed rather than left to count as its own step.
+  function absorbImageOnlyListItems(root) {
+    root.querySelectorAll("li").forEach((li) => {
+      const onlyImages = li.childNodes.length > 0 && [...li.childNodes].every((n) =>
+        (n.nodeType === 1 && n.tagName === "IMG") || (n.nodeType === 3 && !n.textContent.trim()));
+      if (!onlyImages) return;
+      const prev = li.previousElementSibling;
+      if (prev && prev.tagName === "LI") {
+        while (li.firstChild) prev.appendChild(li.firstChild);
+        li.remove();
+      }
+    });
+  }
   function sanitizeRichHTML(html) {
     // Parsed inside a <template> — its content is a genuinely inert
     // DocumentFragment per spec, so an <img onerror> or similar can't fire
@@ -2092,6 +2111,7 @@
       }
     })(root);
     mergeAdjacentLists(root);
+    absorbImageOnlyListItems(root);
     const out = document.createElement("div");
     out.appendChild(root);
     return out.innerHTML;
@@ -2757,18 +2777,29 @@
         body.focus();
         const sel2 = window.getSelection();
         sel2.removeAllRanges();
-        if (savedRange && body.contains(savedRange.startContainer)) {
-          sel2.addRange(savedRange);
-        } else {
+        const range = (savedRange && body.contains(savedRange.startContainer)) ? savedRange : (() => {
           const r = document.createRange();
           r.selectNodeContents(body);
           r.collapse(false);
-          sel2.addRange(r);
+          return r;
+        })();
+        sel2.addRange(range);
+        // execCommand("insertImage") is unreliable specifically when the
+        // cursor is inside a list item — depending on the browser it can
+        // split the list in two (each half renumbering from 1) or give the
+        // photo its own numbered item. Sidestep both by appending the image
+        // directly onto that item's own content instead of going through
+        // execCommand at all — the list itself is never touched, so there's
+        // nothing for its numbering to get wrong.
+        let li = range.startContainer.nodeType === 1 ? range.startContainer : range.startContainer.parentElement;
+        while (li && li !== body && li.tagName !== "LI") li = li.parentElement;
+        if (li && li !== body) {
+          const img = document.createElement("img");
+          img.src = dataURL;
+          li.appendChild(img);
+        } else {
+          document.execCommand("insertImage", false, dataURL);
         }
-        document.execCommand("insertImage", false, dataURL);
-        // Fix up right away (not just on next save/reopen) so numbering
-        // looks right immediately if that insert split a list in two.
-        mergeAdjacentLists(body);
         body.dispatchEvent(new Event("input", { bubbles: true }));
       } catch (e) {
         toast("⚠️ Couldn't add that photo");

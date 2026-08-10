@@ -727,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.12-list-numbering-fix-2";
+  const APP_BUILD = "2026-08-10.13-one-way-share";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -736,7 +736,8 @@
     ["Moss", "#6f9b57"], ["Honey", "#e0a92e"],
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
-  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip", syncCode: null, syncedAt: null };
+  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip", syncCode: null, syncedAt: null,
+    shareTag: "work", shareOutCode: null, shareOutedAt: null, shareInCode: null, shareInedAt: null };
   const DEFAULT_AFFIRMATIONS = [
     "One small step still counts. 🌱",
     "You don't have to do it all today.",
@@ -784,7 +785,7 @@
   function loadNotes() { try { const r = localStorage.getItem(NOTES_KEY); if (r) notes = JSON.parse(r); } catch (e) {} }
   let quotaWarned = false;
   function persist() {
-    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); quotaWarned = false; syncSoon(); }
+    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); quotaWarned = false; syncSoon(); shareOutSoon(); }
     catch (e) {
       if (!quotaWarned) {
         quotaWarned = true;
@@ -1260,6 +1261,68 @@
   function renderSyncStatus() {
     const el = $("#syncStatus"); if (!el) return;
     el.textContent = syncStatus === "syncing" ? "Syncing…" : syncStatus === "error" ? "⚠️ Couldn't reach sync — will retry" : prefs.syncedAt ? "✅ Synced " + timeAgo(prefs.syncedAt) : "Not synced yet";
+  }
+  // ---- one-way note sharing (e.g. personal phone -> work phone) ----------
+  // A second, independent code from the main sync code. This device can
+  // PUSH its tagged notes out (prefs.shareOutCode) and/or PULL someone
+  // else's shared notes in (prefs.shareInCode) — same underlying store
+  // (sync_stores, reused via the ordinary sync_pull/sync_push RPCs) as the
+  // real sync code, just addressed by a different code and holding only
+  // the tagged subset, never the full notes array.
+  let shareOutTimer = null, sharingIn = false;
+  function shareOutSoon() { if (!prefs.shareOutCode) return; clearTimeout(shareOutTimer); shareOutTimer = setTimeout(runShareOut, 3000); }
+  function taggedForShare() { return activeNotes().filter((n) => (n.tags || []).includes((prefs.shareTag || "work").trim())); }
+  async function runShareOut() {
+    if (!prefs.shareOutCode) return;
+    try {
+      await syncRpc("sync_push", { p_code: prefs.shareOutCode, p_data: { notes: taggedForShare() } });
+      prefs.shareOutedAt = now(); savePrefs(); renderShareStatus();
+    } catch (e) {}
+  }
+  // Same keepalive reasoning as flushSyncNow — a tag added right before
+  // backgrounding still deserves a real chance to reach the other device.
+  function flushShareOutNow() {
+    if (!prefs.shareOutCode) return;
+    try {
+      syncRpc("sync_push", { p_code: prefs.shareOutCode, p_data: { notes: taggedForShare() } }, { keepalive: true })
+        .then(() => { prefs.shareOutedAt = now(); savePrefs(); renderShareStatus(); })
+        .catch(() => {});
+    } catch (e) {}
+  }
+  async function runShareIn() {
+    if (!prefs.shareInCode || sharingIn) return;
+    sharingIn = true;
+    try {
+      const rows = await syncRpc("sync_pull", { p_code: prefs.shareInCode });
+      const remote = rows && rows[0] ? rows[0].data : null;
+      const incoming = (remote && Array.isArray(remote.notes)) ? remote.notes : [];
+      const incomingIds = new Set(incoming.map((n) => n.id));
+      let changed = false;
+      // Drop any previously-received shared note that's no longer in the
+      // incoming set (untagged, deleted, or purged on the source device) —
+      // otherwise an untag over there could never actually remove it here,
+      // the same staleness the sync tombstone fix exists to prevent.
+      const before = notes.length;
+      notes = notes.filter((n) => !n.sharedIn || incomingIds.has(n.id));
+      if (notes.length !== before) changed = true;
+      incoming.forEach((inNote) => {
+        const i = notes.findIndex((n) => n.id === inNote.id);
+        const marked = { ...inNote, sharedIn: true };
+        if (i === -1) { notes.push(marked); changed = true; }
+        else if ((inNote.updated || "") > (notes[i].updated || "")) { notes[i] = marked; changed = true; }
+      });
+      if (changed) { persistSafe(); renderNav(); renderList(); }
+      prefs.shareInedAt = now(); savePrefs(); renderShareStatus();
+    } catch (e) {
+    } finally {
+      sharingIn = false;
+    }
+  }
+  function renderShareStatus() {
+    const out = $("#shareOutStatus");
+    if (out) out.textContent = prefs.shareOutedAt ? "✅ Last shared " + timeAgo(prefs.shareOutedAt) : "Not shared yet";
+    const inp = $("#shareInStatus");
+    if (inp) inp.textContent = prefs.shareInedAt ? "✅ Last checked " + timeAgo(prefs.shareInedAt) : "Not checked yet";
   }
   // On a new day/week, wipe the checkmarks of recurring checklists so the routine is fresh.
   function resetRecurring() {
@@ -2383,7 +2446,7 @@
   }
 
   // ---- photos (stored on the note as resized JPEG data URIs, on-device) ----
-  function persistSafe() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); syncSoon(); return true; } catch (e) { return false; } }
+  function persistSafe() { try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); syncSoon(); shareOutSoon(); return true; } catch (e) { return false; } }
   // Downscale in-browser so photos fit in local storage and load fast.
   function fileToScaledDataURL(file, maxDim, quality) {
     maxDim = maxDim || 1400; quality = quality || 0.72;
@@ -3114,6 +3177,40 @@
                  <button class="btn-sm" id="syncJoinBtn">Join</button>
                </div>`
         }</div>
+        <div><div class="group-label">Share tagged notes (one-way)</div>
+          <p class="fineprint" style="margin:0 0 .5rem">Good for a work phone — only notes tagged with the word below go out, one direction only, and it's completely separate from Sync above.</p>
+          <label class="fineprint" style="display:flex;align-items:center;gap:.4rem;margin:0 0 .7rem">Tag that triggers sharing:
+            <input class="folder-in" id="shareTagInput" value="${esc(prefs.shareTag || "work")}" style="width:7rem" />
+          </label>
+          <div style="margin-bottom:.9rem">
+            <div class="fineprint" style="margin:0 0 .3rem;font-weight:700">Send from this device</div>
+            ${prefs.shareOutCode
+              ? `<div class="sync-code" id="shareOutCodeBox">${esc(prefs.shareOutCode)}</div>
+                 <div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
+                   <button class="btn-sm" id="shareOutCopy">⧉ Copy code</button>
+                   <button class="btn-sm" id="shareOutNow">↻ Share now</button>
+                 </div>
+                 <p class="fineprint" id="shareOutStatus" style="margin:.5rem 0 0"></p>
+                 <button class="btn-sm" id="shareOutOff" style="align-self:flex-start;margin-top:.5rem;color:#c0392b">Stop sharing</button>`
+              : `<button class="btn-sm accent" id="shareOutEnable" style="align-self:flex-start">📤 Get a share code</button>`
+            }
+          </div>
+          <div>
+            <div class="fineprint" style="margin:0 0 .3rem;font-weight:700">Receive on this device</div>
+            ${prefs.shareInCode
+              ? `<div class="sync-code" id="shareInCodeBox">${esc(prefs.shareInCode)}</div>
+                 <div style="display:flex;gap:.4rem;margin-top:.5rem;flex-wrap:wrap">
+                   <button class="btn-sm" id="shareInNow">↻ Check now</button>
+                 </div>
+                 <p class="fineprint" id="shareInStatus" style="margin:.5rem 0 0"></p>
+                 <button class="btn-sm" id="shareInOff" style="align-self:flex-start;margin-top:.5rem;color:#c0392b">Stop receiving</button>`
+              : `<div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                   <input class="folder-in" id="shareInJoinInput" placeholder="Enter a share code from another device" style="flex:1" />
+                   <button class="btn-sm" id="shareInJoinBtn">Join</button>
+                 </div>`
+            }
+          </div>
+        </div>
         <div><div class="group-label">Push notifications</div>${
           !prefs.syncCode
             ? `<p class="fineprint" style="margin:0">Turn on sync above first — push needs a code so it can check your routines while your device is asleep.</p>`
@@ -3178,6 +3275,34 @@
     const syncOff = $("#syncOff");
     if (syncOff) syncOff.onclick = () => { prefs.syncCode = null; prefs.syncedAt = null; savePrefs(); openSettings(); };
     if (prefs.syncCode) renderSyncStatus();
+    const shareTagInput = $("#shareTagInput");
+    if (shareTagInput) shareTagInput.onchange = () => { prefs.shareTag = (shareTagInput.value || "work").trim() || "work"; savePrefs(); shareOutSoon(); };
+    const shareOutEnable = $("#shareOutEnable");
+    if (shareOutEnable) shareOutEnable.onclick = () => { prefs.shareOutCode = genSyncCode(); prefs.shareOutedAt = null; savePrefs(); runShareOut(); openSettings(); };
+    const shareOutCopy = $("#shareOutCopy");
+    if (shareOutCopy) shareOutCopy.onclick = async () => {
+      try { await navigator.clipboard.writeText(prefs.shareOutCode); toast("Code copied 📋"); } catch (e) { toast("Couldn't copy — select and copy it manually"); }
+    };
+    const shareOutNowBtn = $("#shareOutNow");
+    if (shareOutNowBtn) shareOutNowBtn.onclick = () => runShareOut();
+    const shareOutOff = $("#shareOutOff");
+    if (shareOutOff) shareOutOff.onclick = () => { prefs.shareOutCode = null; prefs.shareOutedAt = null; savePrefs(); openSettings(); };
+    const shareInJoinBtn = $("#shareInJoinBtn");
+    if (shareInJoinBtn) shareInJoinBtn.onclick = () => {
+      const code = ($("#shareInJoinInput").value || "").trim().toUpperCase();
+      if (!code) return;
+      prefs.shareInCode = code; prefs.shareInedAt = null; savePrefs(); runShareIn(); openSettings();
+    };
+    const shareInNowBtn = $("#shareInNow");
+    if (shareInNowBtn) shareInNowBtn.onclick = () => runShareIn();
+    const shareInOff = $("#shareInOff");
+    if (shareInOff) shareInOff.onclick = () => {
+      // Notes this device only has because they were shared in leave with
+      // the connection — they were never really "this device's" content.
+      notes = notes.filter((n) => !n.sharedIn);
+      prefs.shareInCode = null; prefs.shareInedAt = null; savePrefs(); persistSafe(); renderNav(); renderList(); openSettings();
+    };
+    if (prefs.shareOutCode || prefs.shareInCode) renderShareStatus();
     root.querySelectorAll("[data-ct]").forEach((el) => el.addEventListener("click", () => {
       prefs.colorByTag = el.dataset.ct === "on"; savePrefs(); renderList(); renderEditor(); openSettings();
     }));
@@ -3359,10 +3484,10 @@
   // skipping the pull/merge half of a normal sync) gives it a real chance to
   // land even in that exact moment — this is what a change made seconds
   // before locking your phone needs.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); flushSyncNow(); } else runSync(); });
-  window.addEventListener("pagehide", () => { flushSave(); flushSyncNow(); });
-  window.addEventListener("beforeunload", () => { flushSave(); flushSyncNow(); });
-  window.addEventListener("blur", () => { flushSave(); flushSyncNow(); });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); flushSyncNow(); flushShareOutNow(); } else { runSync(); runShareOut(); runShareIn(); } });
+  window.addEventListener("pagehide", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });
+  window.addEventListener("beforeunload", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });
+  window.addEventListener("blur", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });
   $("#exportBtn").onclick = exportData;
   $("#importBtn").onclick = () => $("#fileInput").click();
   $("#fileInput").onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ""; };
@@ -3414,6 +3539,7 @@
   scheduleReminders();
   maybeWeeklyWins();
   if (prefs.syncCode) runSync();
+  runShareOut(); runShareIn();
   requestPushStatus();
   // Direct open (outside the iframe) with ?capture=1 or #capture pops capture.
   if (/[?&]capture=1/.test(location.search) || location.hash === "#capture") openQuickCapture();

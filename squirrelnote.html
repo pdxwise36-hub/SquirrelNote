@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.1-push-notifications";
+  const APP_BUILD = "2026-08-10.2-push-self-heal";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2345,16 +2345,35 @@
   let pushState = { supported: null, permission: "default", subscribed: false, endpoint: null };
   let pushLblUpdater = null;
   function requestPushStatus() { if (EMBEDDED) try { parent.postMessage({ type: "sn-push-status" }, "*"); } catch (e) {} }
+  // Tells the server about a browser-level push subscription. Upserts by
+  // (code, endpoint), so calling this again for a subscription the server
+  // already has is a harmless no-op — safe to call opportunistically.
+  function registerPushSubscription(s, retrying) {
+    const call = () => syncRpc("push_subscribe", { p_code: prefs.syncCode, p_endpoint: s.endpoint, p_p256dh: s.p256dh, p_auth: s.auth, p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone });
+    return call()
+      .then(() => { pushState = { ...pushState, subscribed: true, endpoint: s.endpoint }; try { pushLblUpdater && pushLblUpdater(); } catch (e2) {} })
+      .catch((err) => {
+        if (retrying) throw err;
+        return new Promise((resolve) => setTimeout(resolve, 1500)).then(() => registerPushSubscription(s, true));
+      });
+  }
   function handlePushMessage(e) {
     if (!e || !e.data || typeof e.data !== "object") return;
     const msg = e.data;
     if (msg.type === "sn-push-status") {
-      pushState = { supported: msg.supported, permission: msg.permission || "default", subscribed: !!msg.subscribed, endpoint: msg.endpoint || null };
+      pushState = { supported: msg.supported, permission: msg.permission || "default", subscribed: !!msg.subscribed, endpoint: msg.subscription ? msg.subscription.endpoint : null };
+      // The browser can hold a working local subscription that never made it
+      // to the server (e.g. a dropped request right as the permission prompt
+      // closed) — re-registering here every time is harmless (it's an upsert)
+      // and means a one-off failure heals itself next time Settings opens,
+      // instead of quietly showing "on" while the server never got told.
+      if (msg.subscribed && msg.subscription && prefs.syncCode) {
+        registerPushSubscription(msg.subscription).catch(() => {});
+      }
     } else if (msg.type === "sn-push-subscribed") {
-      const s = msg.subscription;
-      if (s && prefs.syncCode) {
-        syncRpc("push_subscribe", { p_code: prefs.syncCode, p_endpoint: s.endpoint, p_p256dh: s.p256dh, p_auth: s.auth, p_tz: Intl.DateTimeFormat().resolvedOptions().timeZone })
-          .then(() => { pushState = { ...pushState, subscribed: true, endpoint: s.endpoint }; toast("🔔 Push notifications on"); try { pushLblUpdater && pushLblUpdater(); } catch (e2) {} })
+      if (msg.subscription && prefs.syncCode) {
+        registerPushSubscription(msg.subscription)
+          .then(() => toast("🔔 Push notifications on"))
           .catch(() => toast("⚠️ Couldn't finish enabling push — try again"));
       }
       return;

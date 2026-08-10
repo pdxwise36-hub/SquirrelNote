@@ -727,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.14-lock-pinch-zoom";
+  const APP_BUILD = "2026-08-10.15-sink-checked-items";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2997,6 +2997,9 @@
           <div class="bulk-actions"><button class="btn-sm accent" id="bulkSplit">Split into to-dos</button><button class="btn-sm" id="bulkCancel">Cancel</button></div>
         </div>` : `<button class="link" id="showBulk">＋ Add from text…</button>`}
     `;
+    // Checked items sink below the still-open ones (stable sort keeps each
+    // group's relative order), so the top of the list is always what's left to do.
+    const sinkDone = () => items.sort((a, b) => (itemDone(a) ? 1 : 0) - (itemDone(b) ? 1 : 0));
     // toggle a top-level item (also flips all its sub-steps)
     $("#body").querySelectorAll("[data-toggle]").forEach((el) => el.addEventListener("click", () => {
       const it = items.find((x) => x.id === el.dataset.toggle);
@@ -3005,6 +3008,7 @@
       if (it.sub && it.sub.length) it.sub.forEach((s) => (s.checked = nowDone));
       it.checked = nowDone;
       if (nowDone) bumpStat();
+      sinkDone();
       commit(wasAll);
     }));
     // toggle a single sub-step
@@ -3014,6 +3018,7 @@
       const wasAll = items.length > 0 && items.every(itemDone);
       s.checked = !s.checked; it.checked = it.sub.every((z) => z.checked);
       if (s.checked) bumpStat();
+      sinkDone();
       commit(wasAll);
     }));
     $("#body").querySelectorAll("[data-del]").forEach((el) => el.addEventListener("click", () => { n.items = items.filter((x) => x.id !== el.dataset.del); touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id); }));

@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.3-push-diagnostics";
+  const APP_BUILD = "2026-08-10.4-push-fixed";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1146,7 +1146,13 @@
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error("sync http " + res.status);
-    return res.json();
+    // Some RPCs (push_subscribe/push_unsubscribe) return nothing, and
+    // Supabase replies with an empty body for those — res.json() throws on
+    // empty input, which would otherwise turn a real success into a false
+    // "failed" error. sync_pull/sync_push always return real JSON, so this
+    // still parses those exactly as before.
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
   }
   // No 0/O/1/I/L — stays easy to read aloud or retype if a copy/paste fails.
   function genSyncCode() {

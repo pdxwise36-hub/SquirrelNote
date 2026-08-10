@@ -257,6 +257,9 @@
   .hlswatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid transparent; box-shadow: inset 0 0 0 1.5px var(--border); flex-shrink: 0;
     display: grid; place-items: center; font-size: 0.6rem; color: var(--muted); transition: transform 0.12s var(--ease-spring); }
   .hlswatch:active { transform: scale(0.9); }
+  .photopop-btn { border: none; background: transparent; padding: 0.4rem 0.6rem; border-radius: 8px; font-size: 0.85rem;
+    color: var(--fg); white-space: nowrap; }
+  .photopop-btn:active { background: var(--accent-soft); }
   .note-body mark.hl-1, .card-text mark.hl-1 { background: color-mix(in srgb, #e57373 45%, transparent); }
   .note-body mark.hl-2, .card-text mark.hl-2 { background: color-mix(in srgb, #f0a35e 45%, transparent); }
   .note-body mark.hl-3, .card-text mark.hl-3 { background: color-mix(in srgb, #e6c34a 45%, transparent); }
@@ -437,7 +440,7 @@
   @keyframes rland { 0% { transform: scale(0.4); opacity: 0; } 55% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
   /* photos on notes */
-  .photos { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .photos { display: flex; flex-wrap: wrap; gap: 0.5rem; position: relative; }
   .photo { position: relative; width: 88px; height: 88px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
   .photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
   .photo-del { position: absolute; top: 3px; right: 3px; width: 21px; height: 21px; border-radius: 50%; background: rgba(0,0,0,0.55); color: #fff; font-size: 0.7rem; display: grid; place-items: center; line-height: 1; }
@@ -724,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.9-photo-thumbnails";
+  const APP_BUILD = "2026-08-10.10-camera-capture";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2367,11 +2370,43 @@
     const list = n.photos || [];
     ph.innerHTML = list.map((src, i) => `<div class="photo"><img src="${src}" data-viewphoto="${i}" alt="attachment" /><button class="photo-del" data-delphoto="${i}" aria-label="Remove photo">✕</button></div>`).join("")
       + `<button class="photo-add" id="addPhoto" type="button">📷<span>Add</span></button>`;
-    $("#addPhoto").onclick = () => $("#photoInput").click();
+    $("#addPhoto").onclick = () => openPhotoAttachPopover();
     ph.querySelectorAll("[data-viewphoto]").forEach((el) => el.addEventListener("click", () => openPhoto((n.photos || [])[+el.dataset.viewphoto])));
     ph.querySelectorAll("[data-delphoto]").forEach((el) => el.addEventListener("click", () => {
       n.photos.splice(+el.dataset.delphoto, 1); touch(n); persistSafe(); renderPhotos(n); renderList();
     }));
+  }
+  // Same camera-vs-library choice as the scrapbook photo button (see
+  // openPhotoSourcePopover), for the separate photo-attachment strip. This
+  // one toggles the `capture` attribute on the strip's own #photoInput
+  // (which supports picking several photos at once from the library) rather
+  // than creating a throwaway input, since #photoInput already exists.
+  function closePhotoAttachPopover() { const p = document.querySelector("#photos .photopop"); if (p) p.remove(); }
+  function openPhotoAttachPopover() {
+    const ph = $("#photos"); if (!ph) return;
+    if (ph.querySelector(".photopop")) { closePhotoAttachPopover(); return; }
+    const pop = document.createElement("div");
+    pop.className = "hlpop photopop";
+    pop.innerHTML = `<button type="button" class="photopop-btn" data-cam>📷 Take photo</button><button type="button" class="photopop-btn" data-lib>🖼️ Choose from library</button>`;
+    ph.appendChild(pop);
+    pop.querySelector("[data-cam]").addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); closePhotoAttachPopover(); openPhotoAttachInput(true); });
+    pop.querySelector("[data-lib]").addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); closePhotoAttachPopover(); openPhotoAttachInput(false); });
+    setTimeout(() => {
+      const onOutside = (e) => {
+        if (pop.contains(e.target)) return;
+        closePhotoAttachPopover();
+        document.removeEventListener("mousedown", onOutside, true);
+      };
+      document.addEventListener("mousedown", onOutside, true);
+    }, 0);
+  }
+  function openPhotoAttachInput(useCamera) {
+    const pin = $("#photoInput"); if (!pin) return;
+    // The camera only ever hands back one photo per shot, so multi-select
+    // (only meaningful for the library) is switched off while it's set.
+    if (useCamera) { pin.setAttribute("capture", "environment"); pin.removeAttribute("multiple"); }
+    else { pin.removeAttribute("capture"); pin.setAttribute("multiple", ""); }
+    pin.click();
   }
   function openPhoto(src) {
     if (!src) return;
@@ -2639,18 +2674,49 @@
       insertPhoto(body);
     }
   }
-  // Drops a photo in at the cursor, scrapbook-style. File selection is
-  // async (it waits on the OS picker), so the current selection is saved
-  // before that opens and restored once a file comes back — otherwise the
-  // photo would land wherever the cursor happens to end up afterward, not
-  // where it actually was. Reuses fileToScaledDataURL so an inline photo is
-  // exactly as compressed as one added the old way.
+  // Drops a photo in at the cursor, scrapbook-style. Offers a choice
+  // between the camera and the photo library — a bare file input on its
+  // own already lets most phones reach the camera via their own picker
+  // sheet, but it's buried a tap deeper and inconsistent across browsers;
+  // this makes "take a photo right now" a direct, explicit option.
+  function closePhotoPopover() { const p = $(".photopop"); if (p) p.remove(); }
+  function openPhotoSourcePopover(body, savedRange) {
+    const bar = $("#rtBar");
+    if (bar.querySelector(".photopop")) { closePhotoPopover(); return; }
+    closeHlPopover();
+    const pop = document.createElement("div");
+    pop.className = "hlpop photopop";
+    pop.innerHTML = `<button type="button" class="photopop-btn" data-cam>📷 Take photo</button><button type="button" class="photopop-btn" data-lib>🖼️ Choose from library</button>`;
+    bar.appendChild(pop);
+    pop.querySelector("[data-cam]").addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); closePhotoPopover(); pickAndInsertPhoto(body, savedRange, true); });
+    pop.querySelector("[data-lib]").addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); closePhotoPopover(); pickAndInsertPhoto(body, savedRange, false); });
+    setTimeout(() => {
+      const onOutside = (e) => {
+        if (pop.contains(e.target)) return;
+        closePhotoPopover();
+        document.removeEventListener("mousedown", onOutside, true);
+      };
+      document.addEventListener("mousedown", onOutside, true);
+    }, 0);
+  }
   function insertPhoto(body) {
+    // File selection (and, for the camera, the whole capture-a-photo flow)
+    // is async, so the current selection is saved now and restored once a
+    // file comes back — otherwise the photo would land wherever the cursor
+    // happens to end up afterward, not where it actually was.
     const sel = window.getSelection();
     const savedRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    openPhotoSourcePopover(body, savedRange);
+  }
+  // useCamera sets the file input's `capture` attribute, which on phones
+  // opens the camera app directly instead of the gallery/file chooser.
+  // Reuses fileToScaledDataURL so a photo taken this way is exactly as
+  // compressed as one added any other way.
+  function pickAndInsertPhoto(body, savedRange, useCamera) {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
+    if (useCamera) input.setAttribute("capture", "environment");
     input.onchange = async () => {
       const file = input.files && input.files[0];
       if (!file) return;
@@ -2734,6 +2800,7 @@
     $("#rtBar").querySelectorAll("[data-cmd]").forEach((btn) => btn.addEventListener("mousedown", (e) => {
       e.preventDefault(); // keep the selection inside the editable area
       if (btn.dataset.cmd !== "highlight") closeHlPopover();
+      if (btn.dataset.cmd !== "photo") closePhotoPopover();
       if (document.activeElement !== body) {
         body.focus();
         const sel = window.getSelection(), range = document.createRange();

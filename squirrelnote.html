@@ -243,6 +243,7 @@
   .note-body ul, .note-body ol { margin: 0.2rem 0 0.2rem 1.3rem; padding: 0; }
   .note-body li { margin: 0.1rem 0; }
   .note-body mark, .card-text mark { background: none; color: inherit; border-radius: 3px; padding: 0 0.1em; }
+  .note-body img { max-width: 100%; height: auto; display: block; border-radius: 10px; margin: 0.6rem 0; box-shadow: var(--shadow-sm); }
   .rtbar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; position: relative; }
   .rtbar button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); width: 2rem; height: 2rem;
     display: grid; place-items: center; font-size: 0.85rem; color: var(--fg); transition: background 0.12s, border-color 0.12s, transform 0.12s var(--ease-spring); }
@@ -721,7 +722,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.6-sync-keepalive";
+  const APP_BUILD = "2026-08-10.7-scrapbook-photos";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1979,12 +1980,17 @@
   // the allowlist (script tags, event-handler attributes, pasted styling) is
   // stripped on every save AND on import, so it's safe to feed straight back
   // into innerHTML wherever it's shown.
-  const RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, STRIKE: 1, S: 1, H2: 1, H3: 1, UL: 1, OL: 1, LI: 1, BR: 1, DIV: 1, P: 1, MARK: 1 };
+  const RICH_TAGS = { B: 1, STRONG: 1, I: 1, EM: 1, U: 1, STRIKE: 1, S: 1, H2: 1, H3: 1, UL: 1, OL: 1, LI: 1, BR: 1, DIV: 1, P: 1, MARK: 1, IMG: 1 };
   // MARK is the one tag allowed a "class" attribute — for the highlight
   // colors below — and only a value matching this exact pattern survives.
   // Everything else (style, onerror, href, arbitrary class names, ...) is
   // stripped from every tag, allowed or not.
   const HL_CLASS_RE = /^hl-[1-7]$/;
+  // IMG is the one tag allowed a "src" — and only if it's one of OUR OWN
+  // already-compressed data URIs (see fileToScaledDataURL), never a real
+  // URL (no tracking-pixel/exfiltration risk) and never anything else that
+  // could smuggle script (no javascript:, no inline SVG with <script> in it).
+  const SAFE_IMG_SRC_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
   function sanitizeRichHTML(html) {
     // Parsed inside a <template> — its content is a genuinely inert
     // DocumentFragment per spec, so an <img onerror> or similar can't fire
@@ -1999,7 +2005,18 @@
         if (child.nodeType === 1) {
           if (RICH_TAGS[child.tagName]) {
             const keepClass = child.tagName === "MARK" && HL_CLASS_RE.test(child.getAttribute("class") || "");
-            for (const a of [...child.attributes]) { if (keepClass && a.name === "class") continue; child.removeAttribute(a.name); }
+            const keepSrc = child.tagName === "IMG" && SAFE_IMG_SRC_RE.test(child.getAttribute("src") || "");
+            if (child.tagName === "IMG" && !keepSrc) {
+              // No safe src to show — drop it outright rather than leave a
+              // broken image icon (this only happens on a hand-crafted or
+              // corrupted backup file; the app itself never writes anything
+              // but its own already-compressed data URIs).
+              const next = child.nextSibling;
+              node.removeChild(child);
+              child = next;
+              continue;
+            }
+            for (const a of [...child.attributes]) { if ((keepClass && a.name === "class") || (keepSrc && a.name === "src")) continue; child.removeAttribute(a.name); }
             clean(child);
             child = child.nextSibling;
           } else {
@@ -2506,6 +2523,7 @@
     { cmd: "ul", label: "☰", title: "Bullet list" },
     { cmd: "ol", label: "1.", title: "Numbered list" },
     { cmd: "highlight", label: "🖍️", title: "Highlight color" },
+    { cmd: "photo", label: "📷", title: "Add a photo" },
     { cmd: "clear", label: "🧹", title: "Clear formatting" },
   ];
   // The highlight palette mirrors the app's own note-color palette (minus
@@ -2592,7 +2610,45 @@
       clearHighlightInSelection(body);
     } else if (cmd === "highlight") {
       openHlPopover(body);
+    } else if (cmd === "photo") {
+      insertPhoto(body);
     }
+  }
+  // Drops a photo in at the cursor, scrapbook-style. File selection is
+  // async (it waits on the OS picker), so the current selection is saved
+  // before that opens and restored once a file comes back — otherwise the
+  // photo would land wherever the cursor happens to end up afterward, not
+  // where it actually was. Reuses fileToScaledDataURL so an inline photo is
+  // exactly as compressed as one added the old way.
+  function insertPhoto(body) {
+    const sel = window.getSelection();
+    const savedRange = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      try {
+        const dataURL = await fileToScaledDataURL(file);
+        body.focus();
+        const sel2 = window.getSelection();
+        sel2.removeAllRanges();
+        if (savedRange && body.contains(savedRange.startContainer)) {
+          sel2.addRange(savedRange);
+        } else {
+          const r = document.createRange();
+          r.selectNodeContents(body);
+          r.collapse(false);
+          sel2.addRange(r);
+        }
+        document.execCommand("insertImage", false, dataURL);
+        body.dispatchEvent(new Event("input", { bubbles: true }));
+      } catch (e) {
+        toast("⚠️ Couldn't add that photo");
+      }
+    };
+    input.click();
   }
   function updateRichToolbar() {
     const bar = $("#rtBar"); if (!bar) return;

@@ -727,7 +727,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.15-sink-checked-items";
+  const APP_BUILD = "2026-08-10.16-checklist-reset";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2963,6 +2963,7 @@
         ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "monthly" ? "month" : n.repeat === "yearly" ? "year" : "day"} streak</span>` : ""}
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
+        ${done > 0 ? `<button class="link" id="resetChkBtn" style="margin:0">↺ Reset</button>` : ""}
         ${scheduleFieldsHTML("ckSched", n.repeat, scheduleOf(n))}
       </div>
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
@@ -3088,6 +3089,12 @@
     if (fb) fb.onclick = () => { if ((n.items || []).some((it) => !itemDone(it))) openFocus(n); else toast("Nothing left to focus on 🎉"); };
     const stb = $("#saveTplBtn");
     if (stb) stb.onclick = () => { saveTemplate(n); stb.textContent = "✓ Saved as routine!"; setTimeout(() => { const b = $("#saveTplBtn"); if (b) b.textContent = "⤓ Save as routine"; }, 1400); };
+    const rcb = $("#resetChkBtn");
+    if (rcb) rcb.onclick = () => {
+      if (!confirm("Uncheck everything on this list?")) return;
+      (n.items || []).forEach((it) => { it.checked = false; (it.sub || []).forEach((s) => (s.checked = false)); });
+      touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id);
+    };
   }
   function updateMini(id) { refreshCard(id); }
 

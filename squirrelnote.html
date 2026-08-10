@@ -275,6 +275,9 @@
   .routine-streak { font-family: var(--round); font-weight: 700; font-size: 0.78rem; color: color-mix(in srgb, var(--accent) 78%, var(--fg)); background: var(--accent-soft); border-radius: 99px; padding: 0.22rem 0.6rem; white-space: nowrap; }
   .repeat-ctl select { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0.25rem 0.4rem; font-size: 0.8rem; color: var(--fg); }
   .repeat-ctl select:focus { outline: none; border-color: var(--accent); }
+  .sched-row { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; width: 100%; margin-top: 0.3rem; }
+  .sched-row select, .sched-row input[type="time"] { border: 1px solid var(--border); background: var(--surface); border-radius: 9px; padding: 0.25rem 0.4rem; font-size: 0.8rem; color: var(--fg); }
+  .sched-row select:focus, .sched-row input[type="time"]:focus { outline: none; border-color: var(--accent); }
   .tpl-item { display: flex; align-items: center; }
   .tpl-item.dragging { position: relative; z-index: 5; background: var(--rail-hover); border-radius: 10px; }
   .tpl-item .tpl-new { flex: 1; }
@@ -718,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-09.5-rich-text-v2";
+  const APP_BUILD = "2026-08-09.6-routine-schedules";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -965,29 +968,131 @@
   function loadStats() { try { const r = localStorage.getItem(STATS_KEY); if (r) stats = { days: {}, xp: 0, ...JSON.parse(r) }; } catch (e) {} }
   function saveStats() { try { localStorage.setItem(STATS_KEY, JSON.stringify(stats)); syncSoon(); } catch (e) {} }
   function todayKeyAt(d) { return d.toLocaleDateString("en-CA"); }
+  // "Weekly wins" recap uses its own fixed Monday-aligned week — separate
+  // from any individual routine's own custom reset schedule below.
   function weekKeyAt(d0) { const d = new Date(d0); const day = (d.getDay() + 6) % 7; d.setDate(d.getDate() - day); return "W" + d.toLocaleDateString("en-CA"); }
-  function periodKeyAt(repeat, d0) {
-    const d = new Date(d0);
-    if (repeat === "weekly") return weekKeyAt(d);
-    if (repeat === "monthly") return "M" + d.getFullYear() + "-" + (d.getMonth() + 1);
-    if (repeat === "weekdays") { const day = d.getDay(); if (day === 6) d.setDate(d.getDate() - 1); else if (day === 0) d.setDate(d.getDate() - 2); return "WD" + d.toLocaleDateString("en-CA"); }
-    return todayKeyAt(d); // daily
-  }
   function todayKey() { return todayKeyAt(new Date()); }
   function weekKey() { return weekKeyAt(new Date()); }
-  function periodKey(repeat) { return periodKeyAt(repeat, new Date()); }
-  const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly" };
+
+  // ---- routine reset/reminder schedules ----
+  // Each routine note (and template) can carry its own schedule instead of
+  // always resetting at midnight on a fixed calendar boundary:
+  //   resetTime  "HH:MM" 24h — when in the day it resets. Default "00:00"
+  //              (midnight) matches the original always-midnight behavior
+  //              exactly, so untouched routines don't shift.
+  //   resetDow   0-6 (Sun-Sat) — which day a WEEKLY period starts. Default 1
+  //              (Monday), matching the original Monday-start weeks.
+  //   resetDom   1-31 — which day of the month a MONTHLY/YEARLY period
+  //              starts. Default 1, matching the original 1st-of-month.
+  //   resetMonth 1-12 — which month a YEARLY period starts. Default 1 (Jan).
+  function scheduleOf(n) {
+    return { resetTime: (n && n.resetTime) || "00:00", resetDow: (n && n.resetDow != null) ? n.resetDow : 1,
+      resetDom: (n && n.resetDom) || 1, resetMonth: (n && n.resetMonth) || 1 };
+  }
+  // Sets a date to day `dom` of the given month, clamped to that month's
+  // actual last day (so "the 31st" on a routine still fires reasonably in
+  // February instead of rolling into March).
+  function setDomClamped(d, year, month, dom) {
+    const last = new Date(year, month + 1, 0).getDate();
+    d.setFullYear(year, month, Math.min(dom, last));
+  }
+  // The most recent moment at-or-before `from` that this schedule would
+  // have reset/reminded — this defines which period `from` currently
+  // belongs to. Everything else (period keys, "one period back" for streak
+  // counting) is built on top of this one function.
+  function mostRecentOccurrence(repeat, sched, from) {
+    const [hh, mm] = sched.resetTime.split(":").map(Number);
+    const d = new Date(from);
+    d.setHours(hh, mm, 0, 0);
+    if (repeat === "weekdays") {
+      if (d > from) d.setDate(d.getDate() - 1);
+      while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+      return d;
+    }
+    if (repeat === "weekly") {
+      const delta = (d.getDay() - sched.resetDow + 7) % 7;
+      d.setDate(d.getDate() - delta);
+      d.setHours(hh, mm, 0, 0);
+      if (d > from) d.setDate(d.getDate() - 7);
+      return d;
+    }
+    if (repeat === "monthly") {
+      setDomClamped(d, from.getFullYear(), from.getMonth(), sched.resetDom);
+      d.setHours(hh, mm, 0, 0);
+      if (d > from) { const m = from.getMonth() - 1; setDomClamped(d, from.getFullYear() + (m < 0 ? -1 : 0), (m + 12) % 12, sched.resetDom); d.setHours(hh, mm, 0, 0); }
+      return d;
+    }
+    if (repeat === "yearly") {
+      setDomClamped(d, from.getFullYear(), sched.resetMonth - 1, sched.resetDom);
+      d.setHours(hh, mm, 0, 0);
+      if (d > from) { setDomClamped(d, from.getFullYear() - 1, sched.resetMonth - 1, sched.resetDom); d.setHours(hh, mm, 0, 0); }
+      return d;
+    }
+    if (d > from) d.setDate(d.getDate() - 1); // daily
+    return d;
+  }
+  function periodKeyAt(repeat, d0, sched) {
+    sched = sched || scheduleOf(null);
+    if (!repeat || repeat === "none") repeat = "daily";
+    const occ = mostRecentOccurrence(repeat, sched, d0);
+    const prefix = repeat === "weekly" ? "W" : repeat === "monthly" ? "M" : repeat === "yearly" ? "Y" : repeat === "weekdays" ? "WD" : "";
+    return prefix + todayKeyAt(occ);
+  }
+  function periodKey(repeat, sched) { return periodKeyAt(repeat, new Date(), sched); }
+  const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
+  const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTH_LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  // Shared by the routine creator and the note editor's repeat control — the
+  // day-of-week / day-of-month / month pickers that only make sense for
+  // certain repeat types, plus the time-of-day picker that applies to all
+  // of them (including "weekdays", which just skips the day picker).
+  function scheduleFieldsHTML(idPrefix, repeat, sched) {
+    if (!repeat || repeat === "none") return "";
+    const parts = [];
+    if (repeat === "weekly") {
+      parts.push(`<select id="${idPrefix}Dow">${DOW_LABEL.map((l, i) => `<option value="${i}"${i === sched.resetDow ? " selected" : ""}>${l}</option>`).join("")}</select>`);
+    }
+    if (repeat === "monthly" || repeat === "yearly") {
+      if (repeat === "yearly") parts.push(`<select id="${idPrefix}Month">${MONTH_LABEL.map((l, i) => `<option value="${i + 1}"${i + 1 === sched.resetMonth ? " selected" : ""}>${l}</option>`).join("")}</select>`);
+      parts.push(`<select id="${idPrefix}Dom">${Array.from({ length: 31 }, (_, i) => i + 1).map((d) => `<option value="${d}"${d === sched.resetDom ? " selected" : ""}>${d}</option>`).join("")}</select>`);
+    }
+    parts.push(`<input type="time" id="${idPrefix}Time" value="${esc(sched.resetTime)}" />`);
+    return `<div class="sched-row"><span class="fineprint" style="margin:0">Resets &amp; reminds</span>${parts.join("")}</div>`;
+  }
+  // Wires the fields scheduleFieldsHTML rendered — onChange receives just
+  // the field(s) that changed, to merge into the note/template.
+  function wireScheduleFields(idPrefix, onChange) {
+    const t = $("#" + idPrefix + "Time"); if (t) t.onchange = () => onChange({ resetTime: t.value || "00:00" });
+    const dw = $("#" + idPrefix + "Dow"); if (dw) dw.onchange = () => onChange({ resetDow: Number(dw.value) });
+    const dm = $("#" + idPrefix + "Dom"); if (dm) dm.onchange = () => onChange({ resetDom: Number(dm.value) });
+    const mo = $("#" + idPrefix + "Month"); if (mo) mo.onchange = () => onChange({ resetMonth: Number(mo.value) });
+  }
 
   // ---- per-routine streaks (separate from the global day-streak) ----
-  // Steps a date back one period for a given repeat cadence — used to walk
-  // backward through a note's own streakLog counting consecutive completions.
-  function prevPeriodDate(repeat, d0) {
-    const d = new Date(d0);
-    if (repeat === "monthly") { d.setMonth(d.getMonth() - 1); return d; }
-    if (repeat === "weekly") { d.setDate(d.getDate() - 7); return d; }
-    d.setDate(d.getDate() - 1);
-    if (repeat === "weekdays") { while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1); }
-    return d; // daily
+  // Steps back to the PREVIOUS period boundary — used to walk backward
+  // through a note's own streakLog counting consecutive completions. Works
+  // for any d0 (aligned or not) by re-deriving d0's own occurrence first,
+  // stepping to just before it, then finding THAT moment's occurrence —
+  // which by construction is exactly one period earlier.
+  function prevPeriodDate(repeat, d0, sched) {
+    sched = sched || scheduleOf(null);
+    const occ = mostRecentOccurrence(repeat, sched, d0);
+    const justBefore = new Date(occ.getTime() - 1);
+    return mostRecentOccurrence(repeat, sched, justBefore);
+  }
+  // The next scheduled moment strictly after `from` — used to fire/reschedule
+  // routine reminders. Steps the CURRENT period's occurrence forward by one
+  // unit; since mostRecentOccurrence guarantees there's no boundary between
+  // that occurrence and `from`, the next one is guaranteed to land after it.
+  function nextOccurrenceAfter(repeat, sched, from) {
+    const occ = mostRecentOccurrence(repeat, sched, from);
+    const d = new Date(occ);
+    const [hh, mm] = sched.resetTime.split(":").map(Number);
+    if (repeat === "weekdays") { d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return d; }
+    if (repeat === "weekly") { d.setDate(d.getDate() + 7); return d; }
+    if (repeat === "monthly") { const m = d.getMonth() + 1; setDomClamped(d, d.getFullYear() + (m > 11 ? 1 : 0), m % 12, sched.resetDom); d.setHours(hh, mm, 0, 0); return d; }
+    if (repeat === "yearly") { setDomClamped(d, d.getFullYear() + 1, sched.resetMonth - 1, sched.resetDom); d.setHours(hh, mm, 0, 0); return d; }
+    d.setDate(d.getDate() + 1); return d; // daily
   }
   // Mark today's (or this week's/month's) period as fully completed for a
   // recurring checklist. Safe to call on every toggle — it just re-checks
@@ -996,7 +1101,7 @@
     if (!n.repeat || n.repeat === "none") return;
     if (!(n.items || []).length || !n.items.every(itemDone)) return;
     n.streakLog = n.streakLog || {};
-    n.streakLog[periodKey(n.repeat)] = true;
+    n.streakLog[periodKey(n.repeat, scheduleOf(n))] = true;
   }
   // Consecutive completed periods up to and including the most recent one
   // (today still counts as "in progress" if not yet done, mirroring the
@@ -1004,10 +1109,11 @@
   function noteStreakCount(n) {
     const log = n.streakLog; if (!log) return 0;
     const repeat = n.repeat && n.repeat !== "none" ? n.repeat : "daily";
+    const sched = scheduleOf(n);
     let d = new Date();
-    if (!log[periodKeyAt(repeat, d)]) d = prevPeriodDate(repeat, d);
+    if (!log[periodKeyAt(repeat, d, sched)]) d = prevPeriodDate(repeat, d, sched);
     let count = 0;
-    while (log[periodKeyAt(repeat, d)]) { count++; d = prevPeriodDate(repeat, d); }
+    while (log[periodKeyAt(repeat, d, sched)]) { count++; d = prevPeriodDate(repeat, d, sched); }
     return count;
   }
   function bumpStat() {
@@ -1108,7 +1214,7 @@
     let changed = false;
     notes.forEach((n) => {
       if (n.kind === "checklist" && n.repeat && n.repeat !== "none") {
-        const pk = periodKey(n.repeat);
+        const pk = periodKey(n.repeat, scheduleOf(n));
         if (n.lastReset !== pk) {
           (n.items || []).forEach((i) => { i.checked = false; (i.sub || []).forEach((s) => (s.checked = false)); });
           n.lastReset = pk; changed = true;
@@ -1125,31 +1231,42 @@
   }
   function saveTemplate(n) {
     insertTemplate({ id: uid(), name: n.title || "Routine", tags: n.tags || [], color: n.color || null,
-      repeat: n.repeat || "none", items: (n.items || []).map((i) => ({ text: i.text, sub: (i.sub || []).map((s) => ({ text: s.text })) })) });
+      repeat: n.repeat || "none", resetTime: n.resetTime, resetDow: n.resetDow, resetDom: n.resetDom, resetMonth: n.resetMonth,
+      items: (n.items || []).map((i) => ({ text: i.text, sub: (i.sub || []).map((s) => ({ text: s.text })) })) });
     saveTemplates(); renderNav();
   }
   const ROUTINE_COLORS = ["#f0a35e", "#5bb0a7", "#9b8ad4", "#7fb56e", "#6fb0d4", "#d98bb0", "#e6c34a", "#c98a6a"];
-  function openRoutineCreator() {
+  // `draft` carries whatever's already been typed across a re-render — the
+  // schedule sub-fields (day-of-week etc.) only apply to some repeat types,
+  // so changing the repeat dropdown re-renders to show the right ones, and
+  // without this the name/items text typed so far would be lost.
+  function openRoutineCreator(draft) {
+    draft = draft || { name: "", repeat: "daily", items: "", sched: scheduleOf(null) };
     const root = $("#modalRoot");
     root.innerHTML = `<div class="scrim" id="rtScrim"></div>
       <div class="qc" style="max-width:440px">
         <h2 style="justify-content:center">🔁 New routine</h2>
         <p class="fineprint" style="margin:0;text-align:center">A checklist that resets on the schedule you pick.</p>
-        <input class="remind-in" id="rtName" placeholder="Routine name (e.g. Laundry day)" style="font-size:1rem;padding:.5rem .7rem" />
+        <input class="remind-in" id="rtName" placeholder="Routine name (e.g. Laundry day)" style="font-size:1rem;padding:.5rem .7rem" value="${esc(draft.name)}" />
         <label class="repeat-ctl" style="justify-content:center">🔁 Repeats
-          <select id="rtRepeat"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
+          <select id="rtRepeat"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
         </label>
-        <textarea id="rtItems" placeholder="One step per line…&#10;e.g. Sort lights &amp; darks&#10;Start a load&#10;Move to dryer" style="min-height:120px"></textarea>
+        ${scheduleFieldsHTML("rtSched", draft.repeat, draft.sched)}
+        <textarea id="rtItems" placeholder="One step per line…&#10;e.g. Sort lights &amp; darks&#10;Start a load&#10;Move to dryer" style="min-height:120px">${esc(draft.items)}</textarea>
         <div class="qc-row"><span style="flex:1"></span><button class="btn-sm" id="rtCancel">Cancel</button><button class="btn-sm accent" id="rtCreate">Create routine</button></div>
       </div>`;
     $("#rtScrim").onclick = closeSettings;
     $("#rtCancel").onclick = closeSettings;
+    $("#rtRepeat").value = draft.repeat;
+    $("#rtRepeat").onchange = (e) => openRoutineCreator({ name: $("#rtName").value, repeat: e.target.value, items: $("#rtItems").value, sched: draft.sched });
+    wireScheduleFields("rtSched", (patch) => { Object.assign(draft.sched, patch); });
     $("#rtCreate").onclick = () => {
       const name = $("#rtName").value.trim();
       if (!name) { $("#rtName").focus(); return; }
       const repeat = $("#rtRepeat").value;
       const items = $("#rtItems").value.split(/\n+/).map((s) => s.trim()).filter(Boolean).map((text) => ({ text }));
-      const tpl = { id: uid(), name, tags: ["routine"], color: ROUTINE_COLORS[templates.length % ROUTINE_COLORS.length], repeat, items };
+      const tpl = { id: uid(), name, tags: ["routine"], color: ROUTINE_COLORS[templates.length % ROUTINE_COLORS.length], repeat, items,
+        resetTime: draft.sched.resetTime, resetDow: draft.sched.resetDow, resetDom: draft.sched.resetDom, resetMonth: draft.sched.resetMonth };
       insertTemplate(tpl); saveTemplates();
       closeSettings();
       newFromTemplate(tpl); // spawn a live copy now so it's usable immediately
@@ -1161,7 +1278,8 @@
     const n = { id: uid(), kind: "checklist", title: tpl.name, content: "",
       items: (tpl.items || []).map((i) => ({ id: uid(), text: i.text, checked: false, sub: (i.sub || []).map((s) => ({ id: uid(), text: s.text, checked: false })) })),
       tags: [...(tpl.tags || [])], folder: filter.folder || null, color: tpl.color || null,
-      repeat: tpl.repeat || "none", lastReset: periodKey(tpl.repeat || "none"),
+      repeat: tpl.repeat || "none", resetTime: tpl.resetTime, resetDow: tpl.resetDow, resetDom: tpl.resetDom, resetMonth: tpl.resetMonth,
+      lastReset: periodKey(tpl.repeat || "none", scheduleOf(tpl)),
       pinned: false, created: now(), updated: now() };
     notes.unshift(n); selectedId = n.id; showBulk = false; persist();
     renderNav(); renderList(); renderEditor(); setSelectedFlag();
@@ -2224,15 +2342,58 @@
     if (selectedId === note.id) renderEditor();
     refreshCard(note.id);
   }
+  // A routine's own reset time doubles as its reminder time — same
+  // reasoning as resetRecurring(), just notifying instead of (or alongside)
+  // clearing checkmarks. `lastReminded` (a period key, same shape as
+  // lastReset) tracks which period was last announced so it only ever fires
+  // once per period, and never for a period that's already fully checked
+  // off — no nagging about something already done.
+  function fireRoutineReminder(note) {
+    const title = note.title || "SquirrelNote";
+    let shown = false;
+    try {
+      if (window.Notification && Notification.permission === "granted") {
+        new Notification("🔁 " + title, { body: preview(note), tag: "sn-routine-" + note.id });
+        shown = true;
+      }
+    } catch (e) {}
+    if (!shown) toast("🔁 " + title);
+    try { if (navigator.vibrate) navigator.vibrate([120, 60, 120]); } catch (e) {}
+    playChime();
+    if (selectedId === note.id) renderEditor();
+    refreshCard(note.id);
+  }
   function scheduleReminders() {
     reminderTimers.forEach(clearTimeout); reminderTimers = [];
     const now = Date.now();
     notes.forEach((note) => {
-      if (!note.remindAt || note.remindDone) return;
-      const t = new Date(note.remindAt).getTime(); if (isNaN(t)) return;
-      if (t <= now) { fireReminder(note); return; }
-      const delay = t - now;
-      if (delay < 2147483647) reminderTimers.push(setTimeout(() => fireReminder(note), delay));
+      if (note.remindAt && !note.remindDone) {
+        const t = new Date(note.remindAt).getTime();
+        if (!isNaN(t)) {
+          if (t <= now) fireReminder(note);
+          else { const delay = t - now; if (delay < 2147483647) reminderTimers.push(setTimeout(() => fireReminder(note), delay)); }
+        }
+      }
+      if (note.kind === "checklist" && note.repeat && note.repeat !== "none" && !note.deleted) {
+        const sched = scheduleOf(note);
+        const dueCheck = () => {
+          const nowD = new Date();
+          const occ = mostRecentOccurrence(note.repeat, sched, nowD);
+          const pk = periodKeyAt(note.repeat, occ, sched);
+          // Mirrors resetRecurring() for just this note — a tab left open
+          // across the reset moment should behave the same as reopening
+          // the app after it, not wait for the next reload to catch up.
+          if (note.lastReset !== pk) {
+            (note.items || []).forEach((i) => { i.checked = false; (i.sub || []).forEach((s) => (s.checked = false)); });
+            note.lastReset = pk; persistSafe(); refreshCard(note.id); if (selectedId === note.id) renderEditor();
+          }
+          const allDone = (note.items || []).length > 0 && note.items.every(itemDone);
+          if (note.lastReminded !== pk && !allDone) { note.lastReminded = pk; persistSafe(); fireRoutineReminder(note); }
+        };
+        dueCheck(); // catch up immediately if the scheduled moment already passed
+        const delay = nextOccurrenceAfter(note.repeat, sched, new Date()).getTime() - now;
+        if (delay > 0 && delay < 2147483647) reminderTimers.push(setTimeout(() => { dueCheck(); scheduleReminders(); }, delay));
+      }
     });
   }
 
@@ -2414,11 +2575,12 @@
     $("#body").innerHTML = `
       <div class="chk-controls">
         <label class="repeat-ctl">🔁 Repeats
-          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
+          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
         </label>
-        ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "monthly" ? "month" : "day"} streak</span>` : ""}
+        ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "monthly" ? "month" : n.repeat === "yearly" ? "year" : "day"} streak</span>` : ""}
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
+        ${scheduleFieldsHTML("ckSched", n.repeat, scheduleOf(n))}
       </div>
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
       <div class="chk">
@@ -2523,7 +2685,17 @@
       cur.items = arr; touch(cur); saveSoon(); renderChecklist(cur); refreshCard(cur.id);
     });
     const rs = $("#repeatSel");
-    if (rs) { rs.value = n.repeat || "none"; rs.onchange = () => { n.repeat = rs.value; n.lastReset = periodKey(rs.value); touch(n); saveSoon(); refreshCard(n.id); }; }
+    if (rs) {
+      rs.value = n.repeat || "none";
+      rs.onchange = () => {
+        n.repeat = rs.value; n.lastReset = periodKey(rs.value, scheduleOf(n));
+        touch(n); saveSoon(); refreshCard(n.id); renderChecklist(n);
+      };
+    }
+    wireScheduleFields("ckSched", (patch) => {
+      Object.assign(n, patch); n.lastReset = periodKey(n.repeat, scheduleOf(n));
+      touch(n); saveSoon(); scheduleReminders();
+    });
     const fb = $("#focusBtn");
     if (fb) fb.onclick = () => { if ((n.items || []).some((it) => !itemDone(it))) openFocus(n); else toast("Nothing left to focus on 🎉"); };
     const stb = $("#saveTplBtn");
@@ -2700,7 +2872,12 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: sanitizeRichHTML(n.content || ""), items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none", lastReset: n.lastReset || null, streakLog: (n.streakLog && typeof n.streakLog === "object") ? n.streakLog : {}, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: sanitizeRichHTML(n.content || ""), items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none",
+    resetTime: /^\d{2}:\d{2}$/.test(n.resetTime) ? n.resetTime : undefined,
+    resetDow: Number.isInteger(n.resetDow) && n.resetDow >= 0 && n.resetDow <= 6 ? n.resetDow : undefined,
+    resetDom: Number.isInteger(n.resetDom) && n.resetDom >= 1 && n.resetDom <= 31 ? n.resetDom : undefined,
+    resetMonth: Number.isInteger(n.resetMonth) && n.resetMonth >= 1 && n.resetMonth <= 12 ? n.resetMonth : undefined,
+    lastReset: n.lastReset || null, streakLog: (n.streakLog && typeof n.streakLog === "object") ? n.streakLog : {}, pinned: !!n.pinned, created: n.created || now(), updated: n.updated || now() }; }
 
   function seed() {
     notes = [
@@ -2771,7 +2948,7 @@
       <div class="scrim" id="qcScrim"></div>
       <div class="qc">
         <h2>⚡ Quick capture</h2>
-        <input class="remind-in" id="qcSubject" placeholder="Subject (optional — defaults to date &amp; time)" style="font-size:0.95rem;padding:.5rem .7rem" />
+        <input  id="qcSubject" placeholder="Subject (optional — defaults to date &amp; time)" style="font-size:0.95rem;padding:.5rem .7rem" />
         <p class="fineprint" style="margin:0">Dump it all in — one thing per line, or comma-separated. Or skip the subject above and start with a name and “:” to title the list (e.g. <em>Groceries: milk, eggs, bread</em>).</p>
         <textarea id="qcText" placeholder="milk, eggs, bread&#10;call the dentist&#10;pay rent"></textarea>
         <div class="qc-row">

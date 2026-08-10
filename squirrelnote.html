@@ -735,7 +735,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.18-drag-reorder-in-grid-2";
+  const APP_BUILD = "2026-08-10.19-fix-sync-reorder-revert";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1213,14 +1213,22 @@
   // the later `updated` timestamp. Good enough for a single person's own
   // devices — this isn't meant to arbitrate real simultaneous multi-editor
   // conflicts, just "which device saw this note most recently."
+  //
+  // Order follows the LOCAL array first (falling back to remote's order only
+  // for notes this device doesn't have yet) -- reordering (drag-to-reorder,
+  // "My order") doesn't touch a note's `updated` timestamp, so if remote's
+  // order won here instead, the very next sync would silently put every
+  // manually-reordered note back where the server last saw it.
   function mergeById(localArr, remoteArr) {
-    const map = new Map();
-    (remoteArr || []).forEach((x) => map.set(x.id, x));
-    (localArr || []).forEach((x) => {
-      const r = map.get(x.id);
-      map.set(x.id, (!r || (x.updated || "") >= (r.updated || "")) ? x : r);
+    const remoteMap = new Map((remoteArr || []).map((x) => [x.id, x]));
+    const seen = new Set();
+    const merged = (localArr || []).map((x) => {
+      seen.add(x.id);
+      const r = remoteMap.get(x.id);
+      return (!r || (x.updated || "") >= (r.updated || "")) ? x : r;
     });
-    return [...map.values()];
+    (remoteArr || []).forEach((x) => { if (!seen.has(x.id)) merged.push(x); });
+    return merged;
   }
   let syncTimer = null, syncing = false;
   let syncStatus = "idle"; // idle | syncing | synced | error

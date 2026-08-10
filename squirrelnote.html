@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="theme-color" content="#211a12" />
 <meta name="description" content="SquirrelNote — a cozy notes + to-do stash for your brain." />
 <title>SquirrelNote</title>
@@ -721,13 +721,13 @@
   (function () {
     let m = document.querySelector('meta[name="viewport"]');
     if (!m) { m = document.createElement("meta"); m.setAttribute("name", "viewport"); document.head.appendChild(m); }
-    m.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
+    m.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover");
   })();
   // Bumped by hand on every shipped change — shown in Settings so it's easy
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.13-one-way-share";
+  const APP_BUILD = "2026-08-10.14-lock-pinch-zoom";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [

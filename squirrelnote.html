@@ -2323,6 +2323,15 @@
     return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
   }
   function fromLocalInput(val) { if (!val) return null; const d = new Date(val); return isNaN(d) ? null : d.toISOString(); }
+  // iOS Safari only allows push notifications for a home-screen-installed
+  // app, never a regular tab — everywhere else (Android Chrome, desktop)
+  // push works straight in the browser, so the two platforms need different
+  // instructions here.
+  function isIOS() { try { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); } catch (e) { return false; } }
+  function pushHelpText() {
+    if (isIOS()) return "Get a routine reminder even with SquirrelNote fully closed. On iPhone/iPad: add SquirrelNote to your Home Screen first (Share ⇒ Add to Home Screen) — Safari only allows this from an installed app, not a regular tab.";
+    return "Get a routine reminder even with SquirrelNote fully closed. If they stop arriving after a while, check your phone's battery settings — some Android phones auto-restrict background apps unless you set Chrome (or SquirrelNote, if added to your Home Screen) to “Unrestricted” battery use.";
+  }
   function reminderPermission() { try { return (window.Notification && Notification.permission) || "unsupported"; } catch (e) { return "unsupported"; } }
   async function requestReminderPerm() { try { if (window.Notification && Notification.permission === "default") await Notification.requestPermission(); } catch (e) {} }
 
@@ -2833,7 +2842,7 @@
           !prefs.syncCode
             ? `<p class="fineprint" style="margin:0">Turn on sync above first — push needs a code so it can check your routines while your device is asleep.</p>`
             : `<button class="btn-sm" id="pushToggle" style="align-self:flex-start"></button>
-               <p class="fineprint" style="margin:.4rem 0 0">Get a routine reminder even with SquirrelNote fully closed. On iPhone/iPad: add SquirrelNote to your Home Screen first (Share ⇒ Add to Home Screen) — Safari only allows this from an installed app, not a regular tab.</p>`
+               <p class="fineprint" style="margin:.4rem 0 0">${esc(pushHelpText())}</p>`
         }</div>
         <button class="btn-sm" id="resetPrefs" style="align-self:flex-start">↺ Reset to defaults</button>
         <p class="fineprint">Notes &amp; settings live in this browser only. Grab an <strong>Export backup</strong> from the sidebar to keep them safe.</p>

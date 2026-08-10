@@ -179,7 +179,13 @@
   .seg { display: flex; background: var(--surface-2); border-radius: 11px; padding: 3px; gap: 3px; width: 100%; }
   .seg button { flex: 1; border-radius: 8px; padding: 0.32rem; font-size: 0.8rem; font-weight: 600; color: var(--muted); transition: color 0.14s, background 0.14s, box-shadow 0.14s; }
   .seg button.on { background: var(--surface); color: var(--fg); box-shadow: var(--shadow-sm); }
-  #list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0.65rem 0.65rem calc(9.5rem + env(safe-area-inset-bottom)); }
+  /* A constrained-height element can't also be a CSS-columns container without
+     risk: browsers fragment overflow into *more columns to the right* instead
+     of growing taller, which is invisible until you scroll sideways. So the
+     scrolling (definite height) lives on #listScroll, and the columns (#list)
+     are free to grow to whatever height their content needs. */
+  #listScroll { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  #list { list-style: none; margin: 0; padding: 0.65rem 0.65rem calc(9.5rem + env(safe-area-inset-bottom)); }
   #list:not(.grid) { display: flex; flex-direction: column; gap: 0.55rem; }
   #list.grid { column-count: 2; column-gap: 0.6rem; }
   #list.grid > li { break-inside: avoid; margin-bottom: 0.6rem; }
@@ -695,8 +701,10 @@
         <button data-kind="checklist">To-dos</button>
       </div>
     </div>
-    <div id="affirm"></div>
-    <ul id="list" class="scroll"></ul>
+    <div id="listScroll" class="scroll">
+      <div id="affirm"></div>
+      <ul id="list"></ul>
+    </div>
     <div id="bulkBar"></div>
   </section>
 
@@ -727,7 +735,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.16-checklist-reset";
+  const APP_BUILD = "2026-08-10.17-fix-grid-column-overflow";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [

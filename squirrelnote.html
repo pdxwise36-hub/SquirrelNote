@@ -735,7 +735,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.17-fix-grid-column-overflow";
+  const APP_BUILD = "2026-08-10.18-drag-reorder-in-grid-2";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -869,13 +869,24 @@
   function enableDragReorder(container, rowSel, handleSel, onDrop) {
     if (!container || container.dataset.dragWired) return;
     container.dataset.dragWired = "1";
-    let dragEl = null, rows = [], startY = 0, curIndex = -1, moved = false, pid = null;
+    let dragEl = null, rows = [], startX = 0, startY = 0, lastX = 0, lastY = 0, curIndex = -1, moved = false, pid = null;
+    // Nearest-neighbor by 2D distance from the pointer's actual position (not
+    // dragEl's own rendered rect, which can lag behind during a card's CSS
+    // transition/entrance-animation) so this also works for a multi-column
+    // grid — dragging a card sideways into the other column — not just a
+    // single-column vertical list.
     const targetIndex = () => {
-      const dr = dragEl.getBoundingClientRect();
-      const mid = dr.top + dr.height / 2;
-      let idx = 0;
-      for (const r of rows) { if (r === dragEl) continue; const rr = r.getBoundingClientRect(); if (rr.top + rr.height / 2 < mid) idx++; }
-      return idx;
+      const others = rows.map((r, i) => ({ i, r })).filter(({ r }) => r !== dragEl);
+      if (!others.length) return 0;
+      let nearest = others[0], nearestDist = Infinity;
+      others.forEach((o) => {
+        const rr = o.r.getBoundingClientRect();
+        const dx = rr.left + rr.width / 2 - lastX, dy = rr.top + rr.height / 2 - lastY;
+        const d = dx * dx + dy * dy;
+        if (d < nearestDist) { nearestDist = d; nearest = o; }
+      });
+      const rr = nearest.r.getBoundingClientRect();
+      return lastY < rr.top + rr.height / 2 ? nearest.i : nearest.i + 1;
     };
     const clear = () => {
       if (dragEl) { dragEl.classList.remove("dragging"); dragEl.style.transform = ""; }
@@ -887,10 +898,12 @@
     function onMove(e) {
       if (!dragEl || e.pointerId !== pid) return;
       moved = true; e.preventDefault();
-      dragEl.style.transform = `translateY(${e.clientY - startY}px)`;
+      lastX = e.clientX; lastY = e.clientY;
+      dragEl.style.transform = `translate(${lastX - startX}px, ${lastY - startY}px)`;
     }
     function onUp(e) {
       if (!dragEl || e.pointerId !== pid) return;
+      lastX = e.clientX; lastY = e.clientY;
       const from = curIndex, to = targetIndex(), didMove = moved;
       clear();
       if (didMove && to !== from) onDrop(from, to);
@@ -901,7 +914,7 @@
       const row = handle.closest(rowSel);
       if (!row) return;
       e.preventDefault();
-      dragEl = row; pid = e.pointerId; startY = e.clientY; moved = false;
+      dragEl = row; pid = e.pointerId; startX = e.clientX; startY = e.clientY; lastX = startX; lastY = startY; moved = false;
       rows = [...container.querySelectorAll(rowSel)];
       curIndex = rows.indexOf(row);
       row.classList.add("dragging");
@@ -2241,7 +2254,7 @@
     const cphoto = (n.photos && n.photos.length)
       ? `<div class="card-photo"><img src="${n.photos[0]}" loading="lazy" alt="" />${n.photos.length > 1 ? `<span class="card-photo-n">+${n.photos.length - 1}</span>` : ""}</div>`
       : "";
-    const grip = (prefs.view === "list" && !selecting) ? `<span class="card-grip" title="Drag to reorder">⠿</span>` : "";
+    const grip = !selecting ? `<span class="card-grip" title="Drag to reorder">⠿</span>` : "";
     const check = selecting ? `<span class="card-check">${selectedIds.has(n.id) ? "✓" : ""}</span>` : "";
     const star = selecting ? "" : `<span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span>`;
     return `<div class="card-top">${grip}${check}<span class="card-title">${esc(n.title) || "Untitled"}</span>${star}</div>

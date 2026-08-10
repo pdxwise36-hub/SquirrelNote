@@ -722,7 +722,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.7-scrapbook-photos";
+  const APP_BUILD = "2026-08-10.8-purge-tombstones";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -753,6 +753,7 @@
   ];
   const STATS_KEY = "squirrelnote.stats.v1";
   const TEMPLATES_KEY = "squirrelnote.templates.v1";
+  const PURGED_KEY = "squirrelnote.purged.v1";
   const BRAINDUMP_KEY = "squirrelnote.braindump.v1";
   // Deterministic per-tag colors: the same tag always maps to the same hue.
   const TAG_PALETTE = ["#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#5bb0a7", "#6fb0d4", "#7f8fd4", "#9b8ad4", "#d98bb0", "#c98a6a"];
@@ -1130,6 +1131,18 @@
   let templates = [];
   function loadTemplates() { try { const r = localStorage.getItem(TEMPLATES_KEY); if (r) templates = JSON.parse(r); } catch (e) {} }
   function saveTemplates() { try { localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates)); syncSoon(); } catch (e) {} }
+  // Tombstones for permanently-deleted notes: { [id]: isoTimestamp }. Fully
+  // removing a note from `notes` isn't enough on its own — sync's merge (see
+  // mergeById) fills in any id present on the OTHER side but missing here,
+  // since that's exactly how a note created on another device shows up. A
+  // deleted note looks identical (id just isn't in the local array anymore),
+  // so without a record of "this id was deliberately destroyed," it comes
+  // right back the next time it pulls in a copy from the server or another
+  // device that hasn't caught up yet. purgedIds is that record.
+  let purgedIds = {};
+  function loadPurgedIds() { try { const r = localStorage.getItem(PURGED_KEY); if (r) purgedIds = JSON.parse(r); } catch (e) {} }
+  function savePurgedIds() { try { localStorage.setItem(PURGED_KEY, JSON.stringify(purgedIds)); syncSoon(); } catch (e) {} }
+  function markPurged(id) { purgedIds[id] = now(); savePurgedIds(); }
 
   // ---- cross-device sync (a "sync code" — no accounts, no passwords) -----
   // A tiny hosted store holds one jsonb blob per code. Knowing the code IS
@@ -1168,7 +1181,7 @@
     let s = ""; for (let i = 0; i < 16; i++) s += alphabet[bytes[i] % alphabet.length];
     return s.match(/.{4}/g).join("-");
   }
-  function syncBlob() { return { notes, stats, templates }; }
+  function syncBlob() { return { notes, stats, templates, purged: purgedIds }; }
   // Union two id-keyed arrays, keeping whichever copy of each shared id has
   // the later `updated` timestamp. Good enough for a single person's own
   // devices — this isn't meant to arbitrate real simultaneous multi-editor
@@ -1193,7 +1206,16 @@
       const remote = rows && rows[0] ? rows[0].data : null;
       let changed = false;
       if (remote) {
-        const mergedNotes = mergeById(notes, remote.notes);
+        // Merge tombstones BEFORE notes, so a note purged on another device
+        // (which this device never even knew existed) still gets filtered
+        // back out below, instead of a stale remote copy winning the merge
+        // just because there's no local entry around to out-compete it.
+        const mergedPurged = { ...purgedIds, ...(remote.purged || {}) };
+        if (JSON.stringify(mergedPurged) !== JSON.stringify(purgedIds)) {
+          purgedIds = mergedPurged; changed = true;
+          try { localStorage.setItem(PURGED_KEY, JSON.stringify(purgedIds)); } catch (e) {}
+        }
+        const mergedNotes = mergeById(notes, remote.notes).filter((n) => !purgedIds[n.id]);
         if (JSON.stringify(mergedNotes) !== JSON.stringify(notes)) { notes = mergedNotes; changed = true; }
         const days = { ...(stats.days || {}) };
         Object.entries((remote.stats && remote.stats.days) || {}).forEach(([k, v]) => { days[k] = Math.max(days[k] || 0, v); });
@@ -1902,13 +1924,14 @@
     const n = notes.find((x) => x.id === id); if (!n) return;
     n.deleted = null; touch(n); persist(); renderNav(); renderList();
   }
-  function purgeNote(id) { notes = notes.filter((n) => n.id !== id); persist(); renderNav(); renderList(); }
-  function emptyTrash() { notes = notes.filter((n) => !n.deleted); persist(); renderNav(); renderList(); }
+  function purgeNote(id) { markPurged(id); notes = notes.filter((n) => n.id !== id); persist(); renderNav(); renderList(); }
+  function emptyTrash() { notes.filter((n) => n.deleted).forEach((n) => markPurged(n.id)); notes = notes.filter((n) => !n.deleted); persist(); renderNav(); renderList(); }
   // Housekeeping on boot: drop trash older than TRASH_DAYS so storage doesn't
   // grow forever from things you never got around to emptying.
   function purgeOldTrash() {
     const cutoff = Date.now() - TRASH_DAYS * 24 * 60 * 60 * 1000;
     const before = notes.length;
+    notes.filter((n) => n.deleted && new Date(n.deleted).getTime() <= cutoff).forEach((n) => markPurged(n.id));
     notes = notes.filter((n) => !n.deleted || new Date(n.deleted).getTime() > cutoff);
     if (notes.length !== before) persist();
   }
@@ -3220,7 +3243,7 @@
     renderList();
   }));
 
-  loadPrefs(); loadNotes(); loadStats(); loadTemplates(); loadBrainDump();
+  loadPrefs(); loadNotes(); loadStats(); loadTemplates(); loadBrainDump(); loadPurgedIds();
   if (!notes.length) seed();
   // First ever launch (templates key never written) → drop in starter routines.
   if (localStorage.getItem(TEMPLATES_KEY) === null) seedTemplates();

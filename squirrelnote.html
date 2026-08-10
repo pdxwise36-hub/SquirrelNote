@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.5-sync-on-background";
+  const APP_BUILD = "2026-08-10.6-sync-keepalive";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1139,11 +1139,16 @@
   // app a single dependency-free file.
   const SYNC_URL = "https://dmsftllmpuwgcbdfmuso.supabase.co";
   const SYNC_KEY = "sb_publishable_f8TCzA2MDb1q2jKnvmrwFw_6mmYzGAR";
-  async function syncRpc(fn, body) {
+  async function syncRpc(fn, body, opts) {
     const res = await fetch(`${SYNC_URL}/rest/v1/rpc/${fn}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: SYNC_KEY, Authorization: `Bearer ${SYNC_KEY}` },
       body: JSON.stringify(body),
+      // keepalive tells the browser to let this request finish even if the
+      // page is being torn down right now (swiped away, tab killed) — a
+      // plain fetch can get aborted mid-flight in that exact moment, which
+      // is precisely when a just-made edit most needs to get out the door.
+      ...(opts && opts.keepalive ? { keepalive: true } : {}),
     });
     if (!res.ok) throw new Error("sync http " + res.status);
     // Some RPCs (push_subscribe/push_unsubscribe) return nothing, and
@@ -1210,6 +1215,19 @@
     } finally {
       syncing = false; renderSyncStatus();
     }
+  }
+  // Best-effort push of local changes, used only when the app is being
+  // backgrounded or torn down — skips the pull/merge half of runSync() (that
+  // can happen on the next normal sync) and uses keepalive so the request
+  // has a real chance of finishing even if the tab is killed a moment later.
+  // Never awaited by its callers; it's fire-and-forget by design.
+  function flushSyncNow() {
+    if (!prefs.syncCode) return;
+    try {
+      syncRpc("sync_push", { p_code: prefs.syncCode, p_data: syncBlob() }, { keepalive: true })
+        .then(() => { prefs.syncedAt = now(); savePrefs(); syncStatus = "synced"; renderSyncStatus(); })
+        .catch(() => {});
+    } catch (e) {}
   }
   function renderSyncStatus() {
     const el = $("#syncStatus"); if (!el) return;
@@ -3112,15 +3130,16 @@
   // Auto-save on leave: flush pending writes the moment the app is hidden,
   // backgrounded, or closed — so nothing typed in the last second is lost.
   // Backgrounding used to only flush the LOCAL save — a sync that was still
-  // sitting on its 3-second debounce (see syncSoon()) could get suspended
-  // along with the rest of the tab before it ever reached the server, so an
-  // edit made right before locking your phone could silently never sync.
-  // Forcing an immediate runSync() here (not the debounced one) closes that
-  // gap — it's what a change made seconds before backgrounding needs.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); runSync(); } else runSync(); });
-  window.addEventListener("pagehide", flushSave);
-  window.addEventListener("beforeunload", flushSave);
-  window.addEventListener("blur", flushSave);
+  // sitting on its 3-second debounce (see syncSoon()) could get suspended,
+  // or even a fresh fetch could get aborted mid-flight by an abrupt close,
+  // before an edit ever reached the server. flushSyncNow() (keepalive, and
+  // skipping the pull/merge half of a normal sync) gives it a real chance to
+  // land even in that exact moment — this is what a change made seconds
+  // before locking your phone needs.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); flushSyncNow(); } else runSync(); });
+  window.addEventListener("pagehide", () => { flushSave(); flushSyncNow(); });
+  window.addEventListener("beforeunload", () => { flushSave(); flushSyncNow(); });
+  window.addEventListener("blur", () => { flushSave(); flushSyncNow(); });
   $("#exportBtn").onclick = exportData;
   $("#importBtn").onclick = () => $("#fileInput").click();
   $("#fileInput").onchange = (e) => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ""; };

@@ -721,7 +721,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.4-push-fixed";
+  const APP_BUILD = "2026-08-10.5-sync-on-background";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -3111,7 +3111,13 @@
   window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); else handlePushMessage(e); });
   // Auto-save on leave: flush pending writes the moment the app is hidden,
   // backgrounded, or closed — so nothing typed in the last second is lost.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); else runSync(); });
+  // Backgrounding used to only flush the LOCAL save — a sync that was still
+  // sitting on its 3-second debounce (see syncSoon()) could get suspended
+  // along with the rest of the tab before it ever reached the server, so an
+  // edit made right before locking your phone could silently never sync.
+  // Forcing an immediate runSync() here (not the debounced one) closes that
+  // gap — it's what a change made seconds before backgrounding needs.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); runSync(); } else runSync(); });
   window.addEventListener("pagehide", flushSave);
   window.addEventListener("beforeunload", flushSave);
   window.addEventListener("blur", flushSave);

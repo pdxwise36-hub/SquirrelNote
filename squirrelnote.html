@@ -243,7 +243,9 @@
   .note-body ul, .note-body ol { margin: 0.2rem 0 0.2rem 1.3rem; padding: 0; }
   .note-body li { margin: 0.1rem 0; }
   .note-body mark, .card-text mark { background: none; color: inherit; border-radius: 3px; padding: 0 0.1em; }
-  .note-body img { max-width: 100%; height: auto; display: block; border-radius: 10px; margin: 0.6rem 0; box-shadow: var(--shadow-sm); }
+  .note-body img { width: 110px; height: 110px; max-width: 100%; object-fit: cover; display: inline-block; vertical-align: middle;
+    border-radius: 10px; margin: 0.3rem; box-shadow: var(--shadow-sm); cursor: pointer; transition: transform 0.12s var(--ease-spring); }
+  .note-body img:hover, .note-body img:active { transform: scale(1.04); }
   .rtbar { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; flex-wrap: wrap; position: relative; }
   .rtbar button { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); width: 2rem; height: 2rem;
     display: grid; place-items: center; font-size: 0.85rem; color: var(--fg); transition: background 0.12s, border-color 0.12s, transform 0.12s var(--ease-spring); }
@@ -722,7 +724,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.8-purge-tombstones";
+  const APP_BUILD = "2026-08-10.9-photo-thumbnails";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2701,6 +2703,15 @@
       patch(n.id, { content: clean }); flashSaving(); updateCard(n.id, ".card-sub", preview(n));
     };
     body.addEventListener("input", save);
+    // Tapping a scrapbooked photo opens it full-size instead of placing the
+    // cursor or triggering the browser's native image-resize handles that
+    // some browsers show for an <img> inside a contenteditable region —
+    // mousedown + preventDefault (same trick the toolbar buttons use below)
+    // heads both of those off before they happen.
+    body.addEventListener("mousedown", (e) => {
+      const img = e.target.closest("img");
+      if (img) { e.preventDefault(); openPhoto(img.getAttribute("src")); }
+    });
     // Pasted HTML can carry live elements (e.g. <img onerror>) that fire the
     // instant they land in the connected DOM — before any cleanup runs. Force
     // paste down to plain text so nothing but escaped characters ever gets

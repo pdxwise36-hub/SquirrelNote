@@ -1,0 +1,66 @@
+name: Build Android APK
+
+# Builds the SquirrelNote Android app (the phone-app wrapper + Brain Dump
+# widget in android-app/) into an actual installable .apk, using GitHub's
+# own build servers -- so it works even with no computer and no Android
+# Studio, matching how this whole project gets edited (see CLAUDE.md).
+#
+# Every successful build updates one rolling "Latest Android build" release,
+# so there's a single stable link to bookmark and re-download from a phone
+# whenever the app changes, instead of hunting through old builds.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "android-app/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - run: npm install
+
+      - run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: squirrelnote-debug-apk
+          path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish to the "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Latest Android build
+          body: >
+            Automatically rebuilt from the android-app/ folder.
+            Download app-debug.apk below and open it on your phone to
+            install (Android will ask you to allow installs from this
+            source the first time).
+          prerelease: true
+          files: android-app/android/app/build/outputs/apk/debug/app-debug.apk

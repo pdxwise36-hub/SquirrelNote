@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "449320745125",
+    "project_id": "squirrelnote-14a25",
+    "storage_bucket": "squirrelnote-14a25.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449320745125:android:92c4df0a73c352176db54c",
+        "android_client_info": {
+          "package_name": "com.pdxwise36.squirrelnote"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsWdepxx54jH2MGUg1_yHeDSjWjWlj6H4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

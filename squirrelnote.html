@@ -621,7 +621,7 @@
 
   /* ---------- Calendar page: month grid of notes/reminders/routines ------- */
   #calendarPage { display: none; position: fixed; inset: 0; flex-direction: column; background: var(--app-bg); color: var(--fg); }
-  .cal-scroll { flex: 1; overflow-y: auto; padding: 0.8rem 0.8rem calc(4.6rem + env(safe-area-inset-bottom)); touch-action: pan-y; }
+  .cal-scroll { flex: 1; overflow-y: auto; padding: 0.8rem 0.8rem calc(4.6rem + env(safe-area-inset-bottom)); touch-action: pan-y; overscroll-behavior-y: contain; }
   .cal-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; }
   .cal-month { font-family: var(--serif); font-weight: 700; font-size: 1.15rem; }
   .cal-nav { display: flex; align-items: center; gap: 0.3rem; }
@@ -804,7 +804,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-12.29-calendar-swipe-touch-fix";
+  const APP_BUILD = "2026-08-12.30-calendar-expand-swipe-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1836,6 +1836,28 @@
     const V_THRESHOLD = 70;
     const H_THRESHOLD = 60;
     let startX = 0, startY = 0, dragging = false, vArmed = false, axis = null, pid = null;
+    // Whether we're at the very top -- the one place a vertical drag is ours
+    // to claim, matching the reference app: right at the top, pull-to-expand
+    // and pull-to-collapse win over scrolling into whatever's below, the
+    // same way they do in Samsung's calendar. See the long comment below for
+    // why this has to be kept in sync continuously rather than decided at
+    // the moment a touch starts.
+    function vSafeNow() { return scrollEl.scrollTop <= 0; }
+    // The browser resolves touch-action for a new touch at hit-test time,
+    // on the compositor thread, before our pointerdown handler ever runs on
+    // the main thread -- so setting it reactively once a gesture has already
+    // begun is always one gesture too late. It has to already be correct
+    // *before* the next finger comes down, which means keeping it synced to
+    // the live scroll position instead. This has to be a flat "none" (not a
+    // finer-grained pan-up/pan-down) once armed -- blocking only one
+    // direction still let the browser's own scroll take over the whole
+    // gesture in testing, so the direction we're NOT claiming (scrolling
+    // forward into the day panel from the very top) is instead forwarded
+    // by hand below, in onMove.
+    function syncTouchAction() { scrollEl.style.touchAction = vSafeNow() ? "none" : "pan-y"; }
+    syncTouchAction();
+    scrollEl.addEventListener("scroll", syncTouchAction);
+    let lastForwardedY = 0;
     function onMove(e) {
       if (!dragging || e.pointerId !== pid) return;
       const dx = e.clientX - startX;
@@ -1843,9 +1865,6 @@
       if (!axis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
         axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
       }
-      // Once we've claimed an axis, stop the browser's own touch handling
-      // (native horizontal bounce, or it deciding this is a scroll and
-      // cancelling our pointer sequence with pointercancel) from fighting us.
       if (axis === "x" || (axis === "y" && vArmed)) e.preventDefault();
       if (axis === "x") {
         if (dx < -H_THRESHOLD) {
@@ -1856,14 +1875,23 @@
           calViewDate.setMonth(calViewDate.getMonth() - 1); renderCalendarPage();
         }
       } else if (axis === "y" && vArmed) {
-        if (!isExpanded && dy > V_THRESHOLD) {
+        const wantsExpand = !isExpanded && dy > 0;
+        const wantsCollapse = isExpanded && dy < 0;
+        if (wantsExpand && dy > V_THRESHOLD) {
           dragging = false;
           prefs.calExpanded = true; savePrefs(); renderCalendarPage();
-        } else if (isExpanded && dy < -V_THRESHOLD) {
+        } else if (wantsCollapse && dy < -V_THRESHOLD) {
           dragging = false;
           prefs.calExpanded = false; savePrefs(); renderCalendarPage();
+        } else if (!wantsExpand && !wantsCollapse) {
+          // Dragging the direction we didn't claim -- e.g. scrolling forward
+          // into the day panel's notes, starting right from the top. Native
+          // scrolling is blocked for this whole gesture (touch-action is
+          // "none" while armed), so replicate it by hand.
+          scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - (e.clientY - lastForwardedY));
         }
       }
+      lastForwardedY = e.clientY;
     }
     function onUp() {
       dragging = false; axis = null; pid = null;
@@ -1873,8 +1901,8 @@
     }
     scrollEl.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      vArmed = scrollEl.scrollTop <= 0;
-      startX = e.clientX; startY = e.clientY; dragging = true; axis = null; pid = e.pointerId;
+      vArmed = vSafeNow();
+      startX = e.clientX; startY = e.clientY; lastForwardedY = e.clientY; dragging = true; axis = null; pid = e.pointerId;
       document.addEventListener("pointermove", onMove);
       document.addEventListener("pointerup", onUp);
       document.addEventListener("pointercancel", onUp);

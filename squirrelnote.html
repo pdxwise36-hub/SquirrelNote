@@ -641,11 +641,20 @@
   .cal-dot.routine { background: var(--moss); }
   .cal-daypanel { margin-top: 1rem; }
   .cal-daypanel-title { font-family: var(--serif); font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem; }
-  .cal-item { display: flex; align-items: center; gap: 0.55rem; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin-bottom: 0.4rem; }
+  .cal-item { display: block; width: 100%; text-align: left; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin-bottom: 0.4rem; color: var(--fg); }
+  .cal-item-head { display: flex; align-items: center; gap: 0.55rem; }
   .cal-item-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
   .cal-item-dot.routine { background: var(--moss); }
   .cal-item-title { flex: 1; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cal-item-time { font-size: 0.72rem; color: var(--muted); flex-shrink: 0; }
+  .cal-item-text { margin-top: 0.35rem; font-size: 0.82rem; line-height: 1.4; color: color-mix(in srgb, var(--fg) 78%, transparent);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
+  .cal-item-empty { margin-top: 0.35rem; font-size: 0.82rem; color: var(--muted); }
+  .cal-item-cl { margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem; }
+  .cal-item-clrow { display: flex; align-items: flex-start; gap: 0.4rem; font-size: 0.82rem; line-height: 1.35; }
+  .cal-item-clrow.done { color: var(--muted); text-decoration: line-through; }
+  .cal-item-ck { flex-shrink: 0; opacity: 0.6; }
+  .cal-item-more { font-size: 0.75rem; color: var(--muted); font-weight: 600; }
   .cal-add-btn { width: 100%; margin-top: 0.3rem; border: 1.5px dashed var(--border); border-radius: var(--radius-sm); padding: 0.65rem; color: var(--accent); font-weight: 700; font-size: 0.85rem; background: none; }
   .cal-add-btn:active { background: var(--accent-soft); }
   .cal-empty { color: var(--muted); font-size: 0.85rem; padding: 0.4rem 0.1rem 0.7rem; }
@@ -768,7 +777,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.22-biweekly-routines";
+  const APP_BUILD = "2026-08-10.23-calendar-day-previews";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1703,6 +1712,19 @@
     items.sort((a, b) => a.time - b.time);
     return items;
   }
+  // A compact version of cardInner()'s body preview (checklist items or a
+  // text snippet) for the calendar's day panel -- same idea, smaller: no
+  // grip/pin/photo, and checklist items are capped at 3 instead of 6.
+  function calItemPreview(n) {
+    if (n.kind === "checklist") {
+      const items = n.items || [];
+      if (!items.length) return `<div class="cal-item-empty">Empty checklist</div>`;
+      const shown = items.slice(0, 3);
+      return `<div class="cal-item-cl">${shown.map((it) => `<div class="cal-item-clrow ${itemDone(it) ? "done" : ""}"><span class="cal-item-ck">${itemDone(it) ? "●" : "○"}</span><span>${esc(it.text) || "…"}</span></div>`).join("")}</div>${items.length > 3 ? `<div class="cal-item-more">+ ${items.length - 3} more</div>` : ""}`;
+    }
+    const txt = stripHtml(n.content);
+    return txt ? `<div class="cal-item-text">${esc(txt)}</div>` : "";
+  }
   function renderCalendarPage() {
     const page = $("#calendarPage"); if (!page) return;
     const year = calViewDate.getFullYear(), month = calViewDate.getMonth();
@@ -1742,9 +1764,12 @@
           <div class="cal-daypanel-title">${selDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
           ${selItems.length ? selItems.map((it) => `
             <div class="cal-item" data-opennote="${it.note.id}">
-              <span class="cal-item-dot ${it.routine ? "routine" : ""}"></span>
-              <span class="cal-item-title">${esc(it.note.title) || "Untitled"}</span>
-              <span class="cal-item-time">${it.routine ? "🔁" : it.time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+              <div class="cal-item-head">
+                <span class="cal-item-dot ${it.routine ? "routine" : ""}"></span>
+                <span class="cal-item-title">${esc(it.note.title) || "Untitled"}</span>
+                <span class="cal-item-time">${it.routine ? "🔁" : it.time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+              </div>
+              ${calItemPreview(it.note)}
             </div>`).join("") : `<div class="cal-empty">Nothing here yet.</div>`}
           <button class="cal-add-btn" id="calAddNote">＋ Add a note for this day</button>
         </div>` : ""}

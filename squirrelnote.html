@@ -619,6 +619,37 @@
   .pet-task-desc { color: #a9a3c0; font-size: 0.76rem; line-height: 1.4; margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pet-empty-tasks { color: #a9a3c0; font-size: 0.85rem; text-align: center; padding: 0.6rem; background: rgba(255,255,255,0.04); border-radius: 14px; }
 
+  /* ---------- Calendar page: month grid of notes/reminders/routines ------- */
+  #calendarPage { display: none; position: fixed; inset: 0; flex-direction: column; background: var(--app-bg); color: var(--fg); }
+  .cal-scroll { flex: 1; overflow-y: auto; padding: 0.8rem 0.8rem calc(4.6rem + env(safe-area-inset-bottom)); }
+  .cal-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; }
+  .cal-month { font-family: var(--serif); font-weight: 700; font-size: 1.15rem; }
+  .cal-nav { display: flex; align-items: center; gap: 0.3rem; }
+  .cal-navbtn { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); border: 1.5px solid var(--border); color: var(--fg); font-size: 1rem; display: grid; place-items: center; }
+  .cal-navbtn:active { background: var(--accent-soft); }
+  .cal-today-btn { font-family: var(--round); font-weight: 700; font-size: 0.76rem; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 0.32rem 0.7rem; }
+  .cal-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 0.3rem; }
+  .cal-dow { text-align: center; font-family: var(--round); font-weight: 700; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; }
+  .cal-day { aspect-ratio: 1; border-radius: 12px; background: var(--surface); border: 1.5px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0.3rem 0.15rem; gap: 0.15rem; }
+  .cal-day.out { opacity: 0.35; }
+  .cal-day.today { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
+  .cal-day.sel { background: var(--accent-soft); border-color: var(--accent); }
+  .cal-daynum { font-family: var(--round); font-weight: 700; font-size: 0.82rem; }
+  .cal-dots { display: flex; gap: 0.15rem; flex-wrap: wrap; justify-content: center; }
+  .cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .cal-dot.routine { background: var(--moss); }
+  .cal-daypanel { margin-top: 1rem; }
+  .cal-daypanel-title { font-family: var(--serif); font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem; }
+  .cal-item { display: flex; align-items: center; gap: 0.55rem; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin-bottom: 0.4rem; }
+  .cal-item-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+  .cal-item-dot.routine { background: var(--moss); }
+  .cal-item-title { flex: 1; font-size: 0.9rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cal-item-time { font-size: 0.72rem; color: var(--muted); flex-shrink: 0; }
+  .cal-add-btn { width: 100%; margin-top: 0.3rem; border: 1.5px dashed var(--border); border-radius: var(--radius-sm); padding: 0.65rem; color: var(--accent); font-weight: 700; font-size: 0.85rem; background: none; }
+  .cal-add-btn:active { background: var(--accent-soft); }
+  .cal-empty { color: var(--muted); font-size: 0.85rem; padding: 0.4rem 0.1rem 0.7rem; }
+
   /* ---------- Responsive (single column at ALL widths) --------------------- */
   /* One centered column everywhere so the page can never scroll sideways —
      the rail is an overlay drawer, and list / editor swap in place. */
@@ -710,9 +741,11 @@
 
   <main id="editor" class="scroll"></main>
 </div>
+<div id="calendarPage"></div>
 <div id="petPage"></div>
 <nav id="tabBar">
   <button class="tab-btn on" id="tabNotes" data-page="notes"><span class="tab-ic">📝</span><span class="tab-lbl">Notes</span></button>
+  <button class="tab-btn" id="tabCalendar" data-page="calendar"><span class="tab-ic">🗓️</span><span class="tab-lbl">Calendar</span></button>
   <button class="tab-btn" id="tabPet" data-page="pet"><img class="tab-avatar" src="data:image/webp;base64,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" alt="" /><span class="tab-lbl">Pet</span></button>
   <button class="tab-btn" id="tabSettings" data-page="settings"><span class="tab-ic">⚙️</span><span class="tab-lbl">Settings</span></button>
 </nav>
@@ -735,7 +768,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.20-android-widget-hook";
+  const APP_BUILD = "2026-08-10.21-calendar-tab";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1596,17 +1629,20 @@
       e.stopPropagation(); selectedId = el.dataset.opennote; showPage("notes"); renderList(); renderEditor(); setSelectedFlag();
     }));
   }
-  // Notes and Pet are two full-screen pages; only one is ever mounted, so
-  // there's no scenario where completing a task happens while Pet is showing
-  // — renderPet() just recomputes fresh each time you switch to it.
+  // Notes, Calendar, and Pet are full-screen pages; only one is ever mounted,
+  // so there's no scenario where completing a task happens while another is
+  // showing — each page's render function just recomputes fresh on switch-in.
   function showPage(page) {
-    const isPet = page === "pet";
-    $("#app").style.display = isPet ? "none" : "";
+    const isPet = page === "pet", isCal = page === "calendar";
+    $("#app").style.display = (isPet || isCal) ? "none" : "";
     $("#petPage").style.display = isPet ? "flex" : "none";
-    $("#fab").style.display = isPet || selecting ? "none" : "";
-    $("#tabNotes").classList.toggle("on", !isPet);
+    $("#calendarPage").style.display = isCal ? "flex" : "none";
+    $("#fab").style.display = (isPet || isCal || selecting) ? "none" : "";
+    $("#tabNotes").classList.toggle("on", !isPet && !isCal);
+    $("#tabCalendar").classList.toggle("on", isCal);
     $("#tabPet").classList.toggle("on", isPet);
     if (isPet) renderPet();
+    if (isCal) renderCalendarPage();
   }
   // A soft, non-alarming dot on the Pet tab when asleep — informational, not
   // a notification demanding attention (no count, no red, no pulsing).
@@ -1614,6 +1650,108 @@
     const tab = $("#tabPet"); if (!tab) return;
     const existing = tab.querySelector(".tab-dot"); if (existing) existing.remove();
     if (petState() === "asleep") { const dot = document.createElement("span"); dot.className = "tab-dot"; tab.appendChild(dot); }
+  }
+
+  // ---- Calendar: a month view of notes' reminders and recurring routines --
+  // Nothing new to add here — it's the SAME notes/reminders/routines you
+  // already make, just surfaced by date. "Add" creates a normal note (like
+  // the + button anywhere else) pinned to that day via its existing remindAt
+  // field, rather than inventing a second, separate kind of calendar event.
+  let calViewDate = new Date(); calViewDate.setHours(0, 0, 0, 0); calViewDate.setDate(1);
+  let calSelectedDay = todayKeyAt(new Date());
+  // Everything landing on `dayKey` (a "YYYY-MM-DD" from todayKeyAt): notes
+  // with a plain remindAt that day, plus recurring checklists whose most
+  // recent scheduled occurrence at end-of-day falls on that day (and isn't
+  // from before the routine even existed, so a monthly routine created this
+  // week doesn't appear to have already happened every month this year).
+  function itemsForDay(dayKey) {
+    const items = [];
+    activeNotes().forEach((n) => {
+      if (n.kind === "checklist" && n.repeat && n.repeat !== "none") {
+        const endOfDay = new Date(dayKey + "T23:59:59");
+        const occ = mostRecentOccurrence(n.repeat, scheduleOf(n), endOfDay);
+        if (todayKeyAt(occ) === dayKey && occ >= new Date(n.created || 0)) {
+          items.push({ note: n, routine: true, time: occ });
+        }
+        return;
+      }
+      if (n.remindAt) {
+        const d = new Date(n.remindAt);
+        if (!isNaN(d) && todayKeyAt(d) === dayKey) items.push({ note: n, routine: false, time: d });
+      }
+    });
+    items.sort((a, b) => a.time - b.time);
+    return items;
+  }
+  function renderCalendarPage() {
+    const page = $("#calendarPage"); if (!page) return;
+    const year = calViewDate.getFullYear(), month = calViewDate.getMonth();
+    const first = new Date(year, month, 1);
+    const startOffset = first.getDay(); // 0=Sun, matches the weekday header below
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+    const todayKey = todayKeyAt(new Date());
+    const cells = [];
+    for (let i = 0; i < totalCells; i++) {
+      const d = new Date(year, month, i - startOffset + 1);
+      const key = todayKeyAt(d);
+      const items = itemsForDay(key);
+      const out = d.getMonth() !== month;
+      cells.push(`
+        <button class="cal-day ${out ? "out" : ""} ${key === todayKey ? "today" : ""} ${key === calSelectedDay ? "sel" : ""}" data-day="${key}">
+          <span class="cal-daynum">${d.getDate()}</span>
+          <span class="cal-dots">${items.slice(0, 4).map((it) => `<span class="cal-dot ${it.routine ? "routine" : ""}"></span>`).join("")}</span>
+        </button>`);
+    }
+    const selItems = calSelectedDay ? itemsForDay(calSelectedDay) : [];
+    const selDate = calSelectedDay ? new Date(calSelectedDay + "T00:00:00") : null;
+    page.innerHTML = `
+      <div class="cal-scroll">
+        <div class="cal-header">
+          <span class="cal-month">${MONTH_LABEL[month]} ${year}</span>
+          <div class="cal-nav">
+            <button class="cal-today-btn" id="calToday">Today</button>
+            <button class="cal-navbtn" id="calPrev" aria-label="Previous month">‹</button>
+            <button class="cal-navbtn" id="calNext" aria-label="Next month">›</button>
+          </div>
+        </div>
+        <div class="cal-dow-row">${DOW_LABEL.map((l) => `<span class="cal-dow">${l}</span>`).join("")}</div>
+        <div class="cal-grid">${cells.join("")}</div>
+        ${selDate ? `
+        <div class="cal-daypanel">
+          <div class="cal-daypanel-title">${selDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
+          ${selItems.length ? selItems.map((it) => `
+            <div class="cal-item" data-opennote="${it.note.id}">
+              <span class="cal-item-dot ${it.routine ? "routine" : ""}"></span>
+              <span class="cal-item-title">${esc(it.note.title) || "Untitled"}</span>
+              <span class="cal-item-time">${it.routine ? "🔁" : it.time.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</span>
+            </div>`).join("") : `<div class="cal-empty">Nothing here yet.</div>`}
+          <button class="cal-add-btn" id="calAddNote">＋ Add a note for this day</button>
+        </div>` : ""}
+      </div>`;
+    $("#calPrev").onclick = () => { calViewDate.setMonth(calViewDate.getMonth() - 1); renderCalendarPage(); };
+    $("#calNext").onclick = () => { calViewDate.setMonth(calViewDate.getMonth() + 1); renderCalendarPage(); };
+    $("#calToday").onclick = () => { const t = new Date(); calViewDate = new Date(t.getFullYear(), t.getMonth(), 1); calSelectedDay = todayKeyAt(t); renderCalendarPage(); };
+    page.querySelectorAll("[data-day]").forEach((el) => el.addEventListener("click", () => {
+      calSelectedDay = el.dataset.day; renderCalendarPage();
+    }));
+    page.querySelectorAll("[data-opennote]").forEach((el) => el.addEventListener("click", () => {
+      selectedId = el.dataset.opennote; showPage("notes"); renderList(); renderEditor(); setSelectedFlag();
+    }));
+    const addBtn = $("#calAddNote");
+    if (addBtn) addBtn.onclick = () => newNoteOnDate(calSelectedDay);
+  }
+  // Creates a plain note (same shape as the + button makes anywhere else)
+  // pre-pinned to 9am on the given day via its normal remindAt field, then
+  // switches to the Notes page so you can start typing right away.
+  function newNoteOnDate(dayKey) {
+    const n = { id: uid(), kind: "note", title: "Untitled", content: "", items: [],
+      tags: [], folder: filter.folder || null, color: null, pinned: false, created: now(), updated: now(),
+      remindAt: new Date(dayKey + "T09:00:00").toISOString() };
+    notes.unshift(n); selectedId = n.id; showBulk = false; persist();
+    requestReminderPerm(); scheduleReminders();
+    showPage("notes"); renderNav(); renderList(); renderEditor(); setSelectedFlag();
+    setTimeout(() => { const t = $("#edTitle"); if (t) { t.focus(); t.select(); } }, 30);
   }
 
   // brief celebratory toast (level-ups, etc.)
@@ -3554,6 +3692,7 @@
   $("#railToggle").onclick = () => $("#app").classList.toggle("rail-open");
   $("#railScrim").onclick = () => $("#app").classList.remove("rail-open");
   $("#tabNotes").onclick = () => showPage("notes");
+  $("#tabCalendar").onclick = () => showPage("calendar");
   $("#tabPet").onclick = () => showPage("pet");
   // Settings opens as an overlay on top of whichever page is showing, so it
   // doesn't get an "on" state of its own — Notes/Pet stay marked active

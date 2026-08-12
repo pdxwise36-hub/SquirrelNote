@@ -804,7 +804,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-12.31-quick-capture-drain";
+  const APP_BUILD = "2026-08-12.32-native-fcm-push";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2907,9 +2907,46 @@
   // register a worker under. So the loader page does that part; this talks
   // to it over postMessage and only stores the resulting subscription.
   const EMBEDDED = window.parent !== window;
+  // Web Push (above) can't reach a WebView at all -- Android blocks that
+  // categorically for apps built this way, not something fixable from in
+  // here -- so inside the wrapped Android app, push goes through Firebase
+  // Cloud Messaging instead, via the @capacitor/push-notifications plugin
+  // (see android-app/). IS_NATIVE is false on the regular website, where
+  // window.Capacitor doesn't exist.
+  const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  function nativePushPlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications; }
   let pushState = { supported: null, permission: "default", subscribed: false, endpoint: null };
   let pushLblUpdater = null;
   function requestPushStatus() { if (EMBEDDED) try { parent.postMessage({ type: "sn-push-status" }, "*"); } catch (e) {} }
+  function registerFcmToken(token) {
+    let tz = "UTC";
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch (e) {}
+    return syncRpc("push_subscribe_fcm", { p_code: prefs.syncCode, p_token: token, p_tz: tz });
+  }
+  function wireNativePush() {
+    const pn = nativePushPlugin();
+    if (!pn) return;
+    pn.addListener("registration", (token) => {
+      pushState = { ...pushState, supported: true, permission: "granted", subscribed: true, endpoint: token.value };
+      if (prefs.syncCode) registerFcmToken(token.value).catch(() => {});
+      try { pushLblUpdater && pushLblUpdater(); } catch (e) {}
+    });
+    pn.addListener("registrationError", () => { toast("⚠️ Push notifications couldn't be set up"); });
+    pn.checkPermissions()
+      .then((r) => {
+        pushState = { ...pushState, supported: true, permission: r.receive === "granted" ? "granted" : r.receive === "denied" ? "denied" : "default", subscribed: r.receive === "granted" };
+        try { pushLblUpdater && pushLblUpdater(); } catch (e) {}
+        if (r.receive === "granted") pn.register();
+      })
+      .catch(() => {});
+  }
+  async function enableNativePush() {
+    const pn = nativePushPlugin();
+    if (!pn) return;
+    const perm = await pn.requestPermissions();
+    if (perm.receive !== "granted") { pushState = { ...pushState, permission: "denied" }; try { pushLblUpdater && pushLblUpdater(); } catch (e) {} return; }
+    await pn.register();
+  }
   // Tells the server about a browser-level push subscription. Upserts by
   // (code, endpoint), so calling this again for a subscription the server
   // already has is a harmless no-op — safe to call opportunistically.
@@ -3603,6 +3640,12 @@
     const pt = $("#pushToggle");
     if (pt) {
       const setPushLbl = () => {
+        if (IS_NATIVE) {
+          if (pushState.permission === "denied") { pt.textContent = "🔕 Blocked in phone settings"; pt.disabled = true; }
+          else if (pushState.subscribed) { pt.textContent = "✅ Push on — tap to turn off"; pt.disabled = false; }
+          else { pt.textContent = "🔔 Enable push notifications"; pt.disabled = false; }
+          return;
+        }
         if (!EMBEDDED || pushState.supported === false) { pt.textContent = "Not supported in this browser"; pt.disabled = true; }
         else if (pushState.permission === "denied") { pt.textContent = "🔕 Blocked in browser settings"; pt.disabled = true; }
         else if (pushState.subscribed) { pt.textContent = "✅ Push on — tap to turn off"; pt.disabled = false; }
@@ -3611,11 +3654,22 @@
       setPushLbl();
       pushLblUpdater = setPushLbl;
       pt.onclick = async () => {
+        if (IS_NATIVE) {
+          if (pushState.subscribed) {
+            if (pushState.endpoint && prefs.syncCode) syncRpc("push_unsubscribe_fcm", { p_code: prefs.syncCode, p_token: pushState.endpoint }).catch(() => {});
+            pushState = { ...pushState, subscribed: false };
+            setPushLbl();
+            toast("Push notifications off");
+            return;
+          }
+          await enableNativePush();
+          return;
+        }
         if (pushState.subscribed) { parent.postMessage({ type: "sn-push-unsubscribe" }, "*"); return; }
         await requestReminderPerm();
         parent.postMessage({ type: "sn-push-subscribe" }, "*");
       };
-      requestPushStatus();
+      if (IS_NATIVE) wireNativePush(); else requestPushStatus();
     } else {
       pushLblUpdater = null;
     }

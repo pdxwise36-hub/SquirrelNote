@@ -25,14 +25,15 @@
         </activity>
 
         <receiver
-            android:name=".BrainDumpWidgetProvider"
+            android:name=".QuickNoteReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".QuickNoteBootReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/braindump_widget_info" />
         </receiver>
 
         <provider
@@ -49,4 +50,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

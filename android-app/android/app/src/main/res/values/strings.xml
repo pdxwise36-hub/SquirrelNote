@@ -4,6 +4,4 @@
     <string name="title_activity_main">SquirrelNote</string>
     <string name="package_name">com.pdxwise36.squirrelnote</string>
     <string name="custom_url_scheme">com.pdxwise36.squirrelnote</string>
-    <string name="braindump_widget_description">Quick brain dump capture</string>
-    <string name="braindump_widget_placeholder">Tap to brain dump…</string>
 </resources>

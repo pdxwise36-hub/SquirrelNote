@@ -1,46 +1,41 @@
 package com.pdxwise36.squirrelnote;
 
-import android.content.Intent;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+    private static final int NOTIF_PERMISSION_REQUEST = 1;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(BrainDumpWidgetPlugin.class);
+        registerPlugin(QuickCapturePlugin.class);
         super.onCreate(savedInstanceState);
-        handleIntent(getIntent());
+        ensureNotificationPermission();
+        // Safe to call every launch -- posting again just resets the
+        // notification's reply box rather than duplicating it.
+        QuickNoteNotification.post(this);
     }
 
-    // MainActivity is launchMode="singleTask", so tapping the widget while
-    // the app is already running arrives here instead of a fresh onCreate().
-    @Override
-    public void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        handleIntent(intent);
-    }
-
-    private void handleIntent(Intent intent) {
-        if (intent != null && intent.getBooleanExtra(BrainDumpWidgetProvider.EXTRA_OPEN_BRAINDUMP, false)) {
-            openBrainDumpSoon(5);
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIF_PERMISSION_REQUEST);
         }
     }
 
-    // Fires a window event squirrelnote.html listens for to open the brain
-    // dump modal. On a warm start (app already running) the page and its
-    // listener already exist, so this lands immediately. On a COLD start,
-    // triggerJSEvent can fire before the remote page has finished loading
-    // and registered the listener -- it's a plain evaluateJavascript call
-    // with no built-in "wait until ready" queuing -- so this retries a few
-    // times, 400ms apart, which is harmless once the real listener is
-    // attached (a dispatched event with nothing listening is a no-op).
-    private void openBrainDumpSoon(int retriesLeft) {
-        getBridge().triggerJSEvent("snOpenBrainDump", "window");
-        if (retriesLeft > 0) {
-            new Handler(Looper.getMainLooper()).postDelayed(() -> openBrainDumpSoon(retriesLeft - 1), 400);
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == NOTIF_PERMISSION_REQUEST) {
+            // Whether granted or denied, try posting -- a denial just means
+            // this stays a silent no-op until they allow it in Settings.
+            QuickNoteNotification.post(this);
         }
     }
 }

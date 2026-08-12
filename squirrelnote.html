@@ -768,7 +768,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.21-calendar-tab";
+  const APP_BUILD = "2026-08-10.22-biweekly-routines";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1056,7 +1056,12 @@
   //   resetMonth 1-12 — which month a YEARLY period starts. Default 1 (Jan).
   function scheduleOf(n) {
     return { resetTime: (n && n.resetTime) || "00:00", resetDow: (n && n.resetDow != null) ? n.resetDow : 1,
-      resetDom: (n && n.resetDom) || 1, resetMonth: (n && n.resetMonth) || 1 };
+      resetDom: (n && n.resetDom) || 1, resetMonth: (n && n.resetMonth) || 1,
+      // Which date "every 2 weeks" counts from — biweekly (unlike weekly)
+      // can't be pinned down by day-of-week alone, since every day-of-week
+      // occurs both on an "on" week and an "off" week. Defaults to today so
+      // a freshly-made biweekly routine starts counting from now.
+      resetAnchor: (n && n.resetAnchor) || todayKeyAt(new Date()) };
   }
   // Sets a date to day `dom` of the given month, clamped to that month's
   // actual last day (so "the 31st" on a routine still fires reasonably in
@@ -1085,6 +1090,13 @@
       if (d > from) d.setDate(d.getDate() - 7);
       return d;
     }
+    if (repeat === "biweekly") {
+      const anchor = new Date((sched.resetAnchor || todayKeyAt(from)) + "T00:00:00");
+      anchor.setHours(hh, mm, 0, 0);
+      const MS_14D = 14 * 24 * 60 * 60 * 1000;
+      const periods = Math.floor((from - anchor) / MS_14D);
+      return new Date(anchor.getTime() + periods * MS_14D);
+    }
     if (repeat === "monthly") {
       setDomClamped(d, from.getFullYear(), from.getMonth(), sched.resetDom);
       d.setHours(hh, mm, 0, 0);
@@ -1104,11 +1116,11 @@
     sched = sched || scheduleOf(null);
     if (!repeat || repeat === "none") repeat = "daily";
     const occ = mostRecentOccurrence(repeat, sched, d0);
-    const prefix = repeat === "weekly" ? "W" : repeat === "monthly" ? "M" : repeat === "yearly" ? "Y" : repeat === "weekdays" ? "WD" : "";
+    const prefix = repeat === "weekly" ? "W" : repeat === "biweekly" ? "BW" : repeat === "monthly" ? "M" : repeat === "yearly" ? "Y" : repeat === "weekdays" ? "WD" : "";
     return prefix + todayKeyAt(occ);
   }
   function periodKey(repeat, sched) { return periodKeyAt(repeat, new Date(), sched); }
-  const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", monthly: "Monthly", yearly: "Yearly" };
+  const REPEAT_LABEL = { none: "Off", daily: "Daily", weekdays: "Weekdays", weekly: "Weekly", biweekly: "Biweekly", monthly: "Monthly", yearly: "Yearly" };
   const DOW_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTH_LABEL = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   // Shared by the routine creator and the note editor's repeat control — the
@@ -1120,6 +1132,12 @@
     const parts = [];
     if (repeat === "weekly") {
       parts.push(`<select id="${idPrefix}Dow">${DOW_LABEL.map((l, i) => `<option value="${i}"${i === sched.resetDow ? " selected" : ""}>${l}</option>`).join("")}</select>`);
+    }
+    if (repeat === "biweekly") {
+      // Day-of-week alone can't pin down "every 2 weeks" (every weekday is
+      // both an "on" week and an "off" week across the cycle) — a single
+      // known date does, so pick any date it lands on, e.g. your last payday.
+      parts.push(`<input type="date" id="${idPrefix}Anchor" value="${esc(sched.resetAnchor)}" title="Any date it happens on, e.g. your last payday" />`);
     }
     if (repeat === "monthly" || repeat === "yearly") {
       if (repeat === "yearly") parts.push(`<select id="${idPrefix}Month">${MONTH_LABEL.map((l, i) => `<option value="${i + 1}"${i + 1 === sched.resetMonth ? " selected" : ""}>${l}</option>`).join("")}</select>`);
@@ -1135,6 +1153,7 @@
     const dw = $("#" + idPrefix + "Dow"); if (dw) dw.onchange = () => onChange({ resetDow: Number(dw.value) });
     const dm = $("#" + idPrefix + "Dom"); if (dm) dm.onchange = () => onChange({ resetDom: Number(dm.value) });
     const mo = $("#" + idPrefix + "Month"); if (mo) mo.onchange = () => onChange({ resetMonth: Number(mo.value) });
+    const an = $("#" + idPrefix + "Anchor"); if (an) an.onchange = () => onChange({ resetAnchor: an.value || todayKeyAt(new Date()) });
   }
 
   // ---- per-routine streaks (separate from the global day-streak) ----
@@ -1159,6 +1178,7 @@
     const [hh, mm] = sched.resetTime.split(":").map(Number);
     if (repeat === "weekdays") { d.setDate(d.getDate() + 1); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return d; }
     if (repeat === "weekly") { d.setDate(d.getDate() + 7); return d; }
+    if (repeat === "biweekly") { d.setDate(d.getDate() + 14); return d; }
     if (repeat === "monthly") { const m = d.getMonth() + 1; setDomClamped(d, d.getFullYear() + (m > 11 ? 1 : 0), m % 12, sched.resetDom); d.setHours(hh, mm, 0, 0); return d; }
     if (repeat === "yearly") { setDomClamped(d, d.getFullYear() + 1, sched.resetMonth - 1, sched.resetDom); d.setHours(hh, mm, 0, 0); return d; }
     d.setDate(d.getDate() + 1); return d; // daily
@@ -1415,7 +1435,7 @@
   }
   function saveTemplate(n) {
     insertTemplate({ id: uid(), name: n.title || "Routine", tags: n.tags || [], color: n.color || null,
-      repeat: n.repeat || "none", resetTime: n.resetTime, resetDow: n.resetDow, resetDom: n.resetDom, resetMonth: n.resetMonth,
+      repeat: n.repeat || "none", resetTime: n.resetTime, resetDow: n.resetDow, resetDom: n.resetDom, resetMonth: n.resetMonth, resetAnchor: n.resetAnchor,
       items: (n.items || []).map((i) => ({ text: i.text, sub: (i.sub || []).map((s) => ({ text: s.text })) })) });
     saveTemplates(); renderNav();
   }
@@ -1433,7 +1453,7 @@
         <p class="fineprint" style="margin:0;text-align:center">A checklist that resets on the schedule you pick.</p>
         <input class="remind-in" id="rtName" placeholder="Routine name (e.g. Laundry day)" style="font-size:1rem;padding:.5rem .7rem" value="${esc(draft.name)}" />
         <label class="repeat-ctl" style="justify-content:center">🔁 Repeats
-          <select id="rtRepeat"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
+          <select id="rtRepeat"><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
         </label>
         ${scheduleFieldsHTML("rtSched", draft.repeat, draft.sched)}
         <textarea id="rtItems" placeholder="One step per line…&#10;e.g. Sort lights &amp; darks&#10;Start a load&#10;Move to dryer" style="min-height:120px">${esc(draft.items)}</textarea>
@@ -1450,7 +1470,7 @@
       const repeat = $("#rtRepeat").value;
       const items = $("#rtItems").value.split(/\n+/).map((s) => s.trim()).filter(Boolean).map((text) => ({ text }));
       const tpl = { id: uid(), name, tags: ["routine"], color: ROUTINE_COLORS[templates.length % ROUTINE_COLORS.length], repeat, items,
-        resetTime: draft.sched.resetTime, resetDow: draft.sched.resetDow, resetDom: draft.sched.resetDom, resetMonth: draft.sched.resetMonth };
+        resetTime: draft.sched.resetTime, resetDow: draft.sched.resetDow, resetDom: draft.sched.resetDom, resetMonth: draft.sched.resetMonth, resetAnchor: draft.sched.resetAnchor };
       insertTemplate(tpl); saveTemplates();
       closeSettings();
       newFromTemplate(tpl); // spawn a live copy now so it's usable immediately
@@ -1462,7 +1482,7 @@
     const n = { id: uid(), kind: "checklist", title: tpl.name, content: "",
       items: (tpl.items || []).map((i) => ({ id: uid(), text: i.text, checked: false, sub: (i.sub || []).map((s) => ({ id: uid(), text: s.text, checked: false })) })),
       tags: [...(tpl.tags || [])], folder: filter.folder || null, color: tpl.color || null,
-      repeat: tpl.repeat || "none", resetTime: tpl.resetTime, resetDow: tpl.resetDow, resetDom: tpl.resetDom, resetMonth: tpl.resetMonth,
+      repeat: tpl.repeat || "none", resetTime: tpl.resetTime, resetDow: tpl.resetDow, resetDom: tpl.resetDom, resetMonth: tpl.resetMonth, resetAnchor: tpl.resetAnchor,
       lastReset: periodKey(tpl.repeat || "none", scheduleOf(tpl)),
       pinned: false, created: now(), updated: now() };
     notes.unshift(n); selectedId = n.id; showBulk = false; persist();
@@ -3132,9 +3152,9 @@
     $("#body").innerHTML = `
       <div class="chk-controls">
         <label class="repeat-ctl">🔁 Repeats
-          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
+          <select id="repeatSel"><option value="none">Off</option><option value="daily">Daily</option><option value="weekdays">Weekdays</option><option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select>
         </label>
-        ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "monthly" ? "month" : n.repeat === "yearly" ? "year" : "day"} streak</span>` : ""}
+        ${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? `<span class="routine-streak">🔥 ${noteStreakCount(n)}-${n.repeat === "weekly" ? "week" : n.repeat === "biweekly" ? "cycle" : n.repeat === "monthly" ? "month" : n.repeat === "yearly" ? "year" : "day"} streak</span>` : ""}
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
         ${done > 0 ? `<button class="link" id="resetChkBtn" style="margin:0">↺ Reset</button>` : ""}

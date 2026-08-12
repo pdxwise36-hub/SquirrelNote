@@ -804,7 +804,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-12.30-calendar-expand-swipe-fix";
+  const APP_BUILD = "2026-08-12.31-quick-capture-drain";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -881,12 +881,20 @@
   function saveBrainDumpNow() {
     if (bdTimer) { clearTimeout(bdTimer); bdTimer = null; }
     try { localStorage.setItem(BRAINDUMP_KEY, brainDump); } catch (e) {}
-    // No-op on the regular web deployment -- only present inside the
-    // Android wrapper app, where it feeds the home-screen widget's preview
-    // (the widget can't read this page's localStorage directly).
-    try { window.Capacitor?.Plugins?.BrainDumpWidget?.setText({ text: brainDump }); } catch (e) {}
   }
   function saveBrainDumpSoon() { clearTimeout(bdTimer); bdTimer = setTimeout(saveBrainDumpNow, 300); }
+  // Pulls in anything typed into the lock-screen "Quick note" notification
+  // while the app wasn't open -- only present inside the Android wrapper
+  // app (a no-op everywhere else), where notes typed there get queued
+  // natively (see QuickNoteReceiver in the android-app project) since
+  // there's no running page to save them into at the moment they're typed.
+  function drainQuickCaptures() {
+    const qc = window.Capacitor?.Plugins?.QuickCapture;
+    if (!qc) return;
+    qc.drain().then((r) => {
+      (r?.notes || []).forEach((text) => { if (text && text.trim()) createNoteFromText(text, ""); });
+    }).catch(() => {});
+  }
   // Voice-to-text dictation, shared by Quick Capture and Brain Dump.
   // Android Chrome's "continuous" speech recognition silently restarts
   // mid-dictation and REPLAYS everything already heard alongside the new
@@ -3839,7 +3847,6 @@
   // firing this event from native code (see MainActivity.java in the
   // Capacitor wrapper project) — harmless no-op on the regular web deploy,
   // since nothing there ever dispatches it.
-  window.addEventListener("snOpenBrainDump", () => openBrainDump());
   // Auto-save on leave: flush pending writes the moment the app is hidden,
   // backgrounded, or closed — so nothing typed in the last second is lost.
   // Backgrounding used to only flush the LOCAL save — a sync that was still
@@ -3902,6 +3909,7 @@
   purgeOldTrash();
   checkHash();
   applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak(); renderAffirmation(); updatePetTabBadge();
+  drainQuickCaptures();
   scheduleReminders();
   maybeWeeklyWins();
   if (prefs.syncCode) runSync();

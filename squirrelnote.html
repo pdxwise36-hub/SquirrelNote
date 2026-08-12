@@ -804,7 +804,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.27-calendar-uniform-cells";
+  const APP_BUILD = "2026-08-12.28-calendar-swipe-nav";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1821,6 +1821,53 @@
     }));
     const addBtn = $("#calAddNote");
     if (addBtn) addBtn.onclick = () => newNoteOnDate(calSelectedDay);
+    wireCalendarSwipe($(".cal-scroll"), expanded);
+  }
+  // Swipe left/right anywhere on the calendar to change months, and pull
+  // down / push up (mirroring the ⤢ button) to expand or collapse -- the
+  // vertical gesture is only armed when the scroll area is already at the
+  // very top (the one moment a vertical drag has nothing left to scroll, so
+  // it's safe to repurpose without fighting normal scrolling), while the
+  // horizontal one works everywhere since this page never scrolls sideways.
+  // Whichever axis the drag actually moves in "wins" so a diagonal touch
+  // can't trigger both.
+  function wireCalendarSwipe(scrollEl, isExpanded) {
+    if (!scrollEl) return;
+    const V_THRESHOLD = 70;
+    const H_THRESHOLD = 60;
+    let startX = 0, startY = 0, dragging = false, vArmed = false, axis = null, pid = null;
+    function onMove(e) {
+      if (!dragging || e.pointerId !== pid) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!axis && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+        axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      }
+      if (axis === "x") {
+        if (dx < -H_THRESHOLD) {
+          dragging = false; axis = null;
+          calViewDate.setMonth(calViewDate.getMonth() + 1); renderCalendarPage();
+        } else if (dx > H_THRESHOLD) {
+          dragging = false; axis = null;
+          calViewDate.setMonth(calViewDate.getMonth() - 1); renderCalendarPage();
+        }
+      } else if (axis === "y" && vArmed) {
+        if (!isExpanded && dy > V_THRESHOLD) {
+          dragging = false;
+          prefs.calExpanded = true; savePrefs(); renderCalendarPage();
+        } else if (isExpanded && dy < -V_THRESHOLD) {
+          dragging = false;
+          prefs.calExpanded = false; savePrefs(); renderCalendarPage();
+        }
+      }
+    }
+    function onUp() { dragging = false; axis = null; document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); }
+    scrollEl.addEventListener("pointerdown", (e) => {
+      vArmed = scrollEl.scrollTop <= 0;
+      startX = e.clientX; startY = e.clientY; dragging = true; axis = null; pid = e.pointerId;
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+    });
   }
   // Creates a plain note (same shape as the + button makes anywhere else)
   // pre-pinned to 9am on the given day via its normal remindAt field, then

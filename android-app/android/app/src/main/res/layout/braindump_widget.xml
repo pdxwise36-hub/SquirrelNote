@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Kept deliberately simple: RemoteViews (what widgets render with) only
-  supports a small, fixed set of view types -- no arbitrary web content,
+  supports a small, fixed set of view types, no arbitrary web content,
   no live text input. The whole layout is one tap target that jumps
   straight into the real brain dump editor in the app; typing happens
   there, not in the widget itself.

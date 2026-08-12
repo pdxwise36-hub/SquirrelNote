@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Describes the widget to the Android home screen: how big it can be,
-  how often it should ask to be refreshed on its own (belt-and-suspenders --
+  how often it should ask to be refreshed on its own (belt and suspenders;
   the app also pushes an update immediately whenever the brain dump text
   changes, via BrainDumpWidgetPlugin), and which layout to draw.
 -->

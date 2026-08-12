@@ -788,7 +788,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.24-calendar-expanded-view";
+  const APP_BUILD = "2026-08-10.25-reliable-flush-on-background";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -3724,7 +3724,14 @@
   $("#openSettings").onclick = openSettings;
   // The home-screen "Quick note" shortcut opens the site with ?capture=1; the
   // loader relays that here so we pop the capture box straight open.
-  window.addEventListener("message", (e) => { if (e && e.data === "sn-capture") openQuickCapture(); else handlePushMessage(e); });
+  window.addEventListener("message", (e) => {
+    if (e && e.data === "sn-capture") { openQuickCapture(); return; }
+    // Relayed from the top-level loader page (see index.html) as a more
+    // reliable backstop for the flush handlers below — this iframe's own
+    // visibilitychange/pagehide/blur don't always fire in time on mobile.
+    if (e && e.data && e.data.type === "sn-flush") { flushSave(); flushSyncNow(); flushShareOutNow(); return; }
+    handlePushMessage(e);
+  });
   // The Android home-screen widget launches straight into Brain Dump by
   // firing this event from native code (see MainActivity.java in the
   // Capacitor wrapper project) — harmless no-op on the regular web deploy,

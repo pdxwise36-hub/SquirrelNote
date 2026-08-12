@@ -630,20 +630,31 @@
   .cal-today-btn { font-family: var(--round); font-weight: 700; font-size: 0.76rem; color: var(--accent); background: var(--accent-soft); border-radius: 99px; padding: 0.32rem 0.7rem; }
   .cal-dow-row { display: grid; grid-template-columns: repeat(7, 1fr); margin-bottom: 0.3rem; }
   .cal-dow { text-align: center; font-family: var(--round); font-weight: 700; font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.25rem; }
-  .cal-day { aspect-ratio: 1; border-radius: 12px; background: var(--surface); border: 1.5px solid var(--border); display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0.3rem 0.15rem; gap: 0.15rem; }
+  /* Matched to the reference (Samsung Calendar): cells sit edge-to-edge with
+     only a hairline gap -- no per-cell border/shadow "card" look -- and get
+     a colored background fill (not a dot) on days that have something on
+     them, same as the reference's dark-red day fill. */
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+  .cal-day { aspect-ratio: 1; border-radius: 8px; background: var(--surface); border: none; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 0.3rem 0.1rem 0.15rem; gap: 0.1rem; }
   .cal-day.out { opacity: 0.35; }
-  .cal-day.today { border-color: var(--accent); box-shadow: 0 0 0 1.5px var(--accent) inset; }
-  .cal-day.sel { background: var(--accent-soft); border-color: var(--accent); }
-  .cal-daynum { font-family: var(--round); font-weight: 700; font-size: 0.82rem; }
-  .cal-dots { display: flex; gap: 0.15rem; flex-wrap: wrap; justify-content: center; }
-  .cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-  .cal-dot.routine { background: var(--moss); }
+  .cal-day.has-items { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+  .cal-day.today .cal-daynum { color: var(--accent); }
+  .cal-daynum { font-family: var(--round); font-weight: 700; font-size: 0.82rem; line-height: 1; padding: 0.15rem 0.4rem; border-radius: 8px; }
+  /* Selected day: a filled pill around just the number (compact mode), same
+     as the reference -- not a border around the whole cell. */
+  .cal-day.sel .cal-daynum { background: var(--fg); color: var(--app-bg); }
+  .cal-day-bar { width: 60%; height: 2.5px; border-radius: 2px; background: var(--accent); margin-top: 0.1rem; }
+  .cal-day-bar.routine { background: var(--moss); }
   .cal-expand-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   /* Expanded mode (Samsung Calendar-style): cells grow tall and show the
-     actual item titles inline instead of just dots. */
-  .cal-grid.expanded .cal-day { aspect-ratio: auto; min-height: 4.6rem; align-items: flex-start; justify-content: flex-start; padding: 0.3rem 0.25rem; }
-  .cal-grid.expanded .cal-daynum { align-self: flex-start; }
+     actual item titles inline instead of just a color fill. Selection here
+     is a border around the whole cell (matching the reference's own
+     compact-vs-expanded difference), since the number-pill would get lost
+     among the inline item text. */
+  .cal-grid.expanded .cal-day { aspect-ratio: auto; min-height: 4.6rem; align-items: flex-start; justify-content: flex-start; padding: 0.3rem 0.25rem; background: var(--surface); }
+  .cal-grid.expanded .cal-day.sel { box-shadow: 0 0 0 1.5px var(--accent) inset; }
+  .cal-grid.expanded .cal-day.sel .cal-daynum { background: none; color: var(--accent); padding: 0; }
+  .cal-grid.expanded .cal-daynum { align-self: flex-start; padding: 0; }
   .cal-day-chips { display: flex; flex-direction: column; gap: 0.12rem; width: 100%; margin-top: 0.1rem; }
   .cal-day-chip { display: flex; align-items: center; gap: 0.2rem; width: 100%; overflow: hidden; }
   .cal-day-chip-bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
@@ -788,7 +799,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.25-reliable-flush-on-background";
+  const APP_BUILD = "2026-08-10.26-calendar-match-reference";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1752,12 +1763,13 @@
       const items = itemsForDay(key);
       const out = d.getMonth() !== month;
       // Expanded mode shows the actual titles inline (Samsung Calendar-style);
-      // compact mode keeps the small dot indicators from before.
+      // compact mode fills the whole cell with a soft color tint plus a
+      // single underline bar, matching the reference instead of small dots.
       const inner = expanded
         ? `<div class="cal-day-chips">${items.slice(0, 3).map((it) => `<div class="cal-day-chip"><span class="cal-day-chip-bar ${it.routine ? "routine" : ""}"></span><span class="cal-day-chip-text">${esc(it.note.title) || "Untitled"}</span></div>`).join("")}${items.length > 3 ? `<span class="cal-day-more">+${items.length - 3} more</span>` : ""}</div>`
-        : `<span class="cal-dots">${items.slice(0, 4).map((it) => `<span class="cal-dot ${it.routine ? "routine" : ""}"></span>`).join("")}</span>`;
+        : (items.length ? `<span class="cal-day-bar ${items[0].routine ? "routine" : ""}"></span>` : "");
       cells.push(`
-        <button class="cal-day ${out ? "out" : ""} ${key === todayKey ? "today" : ""} ${key === calSelectedDay ? "sel" : ""}" data-day="${key}">
+        <button class="cal-day ${out ? "out" : ""} ${!expanded && items.length ? "has-items" : ""} ${key === todayKey ? "today" : ""} ${key === calSelectedDay ? "sel" : ""}" data-day="${key}">
           <span class="cal-daynum">${d.getDate()}</span>
           ${inner}
         </button>`);

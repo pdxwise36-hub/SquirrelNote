@@ -639,6 +639,17 @@
   .cal-dots { display: flex; gap: 0.15rem; flex-wrap: wrap; justify-content: center; }
   .cal-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
   .cal-dot.routine { background: var(--moss); }
+  .cal-expand-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  /* Expanded mode (Samsung Calendar-style): cells grow tall and show the
+     actual item titles inline instead of just dots. */
+  .cal-grid.expanded .cal-day { aspect-ratio: auto; min-height: 4.6rem; align-items: flex-start; justify-content: flex-start; padding: 0.3rem 0.25rem; }
+  .cal-grid.expanded .cal-daynum { align-self: flex-start; }
+  .cal-day-chips { display: flex; flex-direction: column; gap: 0.12rem; width: 100%; margin-top: 0.1rem; }
+  .cal-day-chip { display: flex; align-items: center; gap: 0.2rem; width: 100%; overflow: hidden; }
+  .cal-day-chip-bar { width: 3px; align-self: stretch; border-radius: 2px; background: var(--accent); flex-shrink: 0; }
+  .cal-day-chip-bar.routine { background: var(--moss); }
+  .cal-day-chip-text { font-size: 0.58rem; line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); text-align: left; }
+  .cal-day-more { font-size: 0.56rem; color: var(--muted); font-weight: 700; align-self: flex-start; }
   .cal-daypanel { margin-top: 1rem; }
   .cal-daypanel-title { font-family: var(--serif); font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem; }
   .cal-item { display: block; width: 100%; text-align: left; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem 0.75rem; margin-bottom: 0.4rem; color: var(--fg); }
@@ -777,7 +788,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-10.23-calendar-day-previews";
+  const APP_BUILD = "2026-08-10.24-calendar-expanded-view";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -787,7 +798,7 @@
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
   const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip", syncCode: null, syncedAt: null,
-    shareTag: "work", shareOutCode: null, shareOutedAt: null, shareInCode: null, shareInedAt: null };
+    shareTag: "work", shareOutCode: null, shareOutedAt: null, shareInCode: null, shareInedAt: null, calExpanded: false };
   const DEFAULT_AFFIRMATIONS = [
     "One small step still counts. 🌱",
     "You don't have to do it all today.",
@@ -1733,16 +1744,22 @@
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
     const todayKey = todayKeyAt(new Date());
+    const expanded = !!prefs.calExpanded;
     const cells = [];
     for (let i = 0; i < totalCells; i++) {
       const d = new Date(year, month, i - startOffset + 1);
       const key = todayKeyAt(d);
       const items = itemsForDay(key);
       const out = d.getMonth() !== month;
+      // Expanded mode shows the actual titles inline (Samsung Calendar-style);
+      // compact mode keeps the small dot indicators from before.
+      const inner = expanded
+        ? `<div class="cal-day-chips">${items.slice(0, 3).map((it) => `<div class="cal-day-chip"><span class="cal-day-chip-bar ${it.routine ? "routine" : ""}"></span><span class="cal-day-chip-text">${esc(it.note.title) || "Untitled"}</span></div>`).join("")}${items.length > 3 ? `<span class="cal-day-more">+${items.length - 3} more</span>` : ""}</div>`
+        : `<span class="cal-dots">${items.slice(0, 4).map((it) => `<span class="cal-dot ${it.routine ? "routine" : ""}"></span>`).join("")}</span>`;
       cells.push(`
         <button class="cal-day ${out ? "out" : ""} ${key === todayKey ? "today" : ""} ${key === calSelectedDay ? "sel" : ""}" data-day="${key}">
           <span class="cal-daynum">${d.getDate()}</span>
-          <span class="cal-dots">${items.slice(0, 4).map((it) => `<span class="cal-dot ${it.routine ? "routine" : ""}"></span>`).join("")}</span>
+          ${inner}
         </button>`);
     }
     const selItems = calSelectedDay ? itemsForDay(calSelectedDay) : [];
@@ -1752,13 +1769,14 @@
         <div class="cal-header">
           <span class="cal-month">${MONTH_LABEL[month]} ${year}</span>
           <div class="cal-nav">
+            <button class="cal-navbtn cal-expand-btn ${expanded ? "on" : ""}" id="calExpandToggle" title="${expanded ? "Switch to compact view" : "Switch to expanded view"}" aria-label="Toggle expanded view">${expanded ? "⤡" : "⤢"}</button>
             <button class="cal-today-btn" id="calToday">Today</button>
             <button class="cal-navbtn" id="calPrev" aria-label="Previous month">‹</button>
             <button class="cal-navbtn" id="calNext" aria-label="Next month">›</button>
           </div>
         </div>
         <div class="cal-dow-row">${DOW_LABEL.map((l) => `<span class="cal-dow">${l}</span>`).join("")}</div>
-        <div class="cal-grid">${cells.join("")}</div>
+        <div class="cal-grid ${expanded ? "expanded" : ""}">${cells.join("")}</div>
         ${selDate ? `
         <div class="cal-daypanel">
           <div class="cal-daypanel-title">${selDate.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
@@ -1777,6 +1795,7 @@
     $("#calPrev").onclick = () => { calViewDate.setMonth(calViewDate.getMonth() - 1); renderCalendarPage(); };
     $("#calNext").onclick = () => { calViewDate.setMonth(calViewDate.getMonth() + 1); renderCalendarPage(); };
     $("#calToday").onclick = () => { const t = new Date(); calViewDate = new Date(t.getFullYear(), t.getMonth(), 1); calSelectedDay = todayKeyAt(t); renderCalendarPage(); };
+    $("#calExpandToggle").onclick = () => { prefs.calExpanded = !prefs.calExpanded; savePrefs(); renderCalendarPage(); };
     page.querySelectorAll("[data-day]").forEach((el) => el.addEventListener("click", () => {
       calSelectedDay = el.dataset.day; renderCalendarPage();
     }));

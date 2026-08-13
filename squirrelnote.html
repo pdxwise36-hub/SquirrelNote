@@ -360,6 +360,12 @@
   .bs-add:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
   .bs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
     color: var(--muted); font-size: 0.85rem; padding: 2rem; pointer-events: none; }
+  .bs-zoom { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 4px; box-shadow: 0 4px 14px -6px rgba(0,0,0,0.4); }
+  .bs-zoom-btn { width: 30px; height: 30px; border-radius: 9px; background: none; border: none; color: var(--fg);
+    font-size: 1.05rem; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .bs-zoom-btn:hover, .bs-zoom-btn:active { background: var(--surface-2); }
+  .bs-zoom-lbl { font-family: var(--round); font-size: 0.62rem; font-weight: 700; color: var(--muted); padding: 1px 0; }
   .bulk { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 0.8rem; display: flex; flex-direction: column; gap: 0.55rem; }
   .bulk textarea { min-height: 96px; resize: vertical; background: var(--app-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem; font-size: 0.88rem; font-family: var(--body-font); }
   .bulk textarea:focus { outline: none; border-color: var(--accent); }
@@ -847,7 +853,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.35-brainstorm-spacing-fix";
+  const APP_BUILD = "2026-08-13.36-brainstorm-zoom-depth";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -3625,7 +3631,14 @@
   // item/sub-item structure when converted with "Make list".
   let bsEditingId = null; // node currently showing as an editable input
   let bsPanX = 0, bsPanY = 0; // transient pan offset, not persisted
+  let bsScale = 1; // transient zoom level, not persisted
+  const BS_MIN_SCALE = 0.5, BS_MAX_SCALE = 2.5;
+  const bsClampScale = (s) => Math.max(BS_MIN_SCALE, Math.min(BS_MAX_SCALE, s));
 
+  // No depth limit -- a branch can keep sprouting branches of its own.
+  // Each generation continues outward along the same ray its parent started
+  // (angle is inherited down the chain), just a fixed step further out, so
+  // arbitrarily deep chains fan out from the root instead of doubling back.
   function bsLayout(n) {
     const nodes = n.bsNodes || [];
     const top = nodes.filter((b) => !b.parentId);
@@ -3643,24 +3656,29 @@
       const angle = -Math.PI / 2 - half + arc * t;
       pos[b.id] = { x: Math.cos(angle) * R1, y: Math.sin(angle) * R1, angle };
     });
-    // Sub-branches: a straight perpendicular stack past the parent, spaced
-    // by a fixed pixel step -- not a narrow angular fan. A fan's spacing
-    // shrinks as it nears the parent (arc length = radius × angle), so it
-    // was letting sibling bubbles overlap the moment their text wrapped to
-    // two lines. The step has to clear a bubble's full WIDTH, not just its
-    // height: the perpendicular direction is only sometimes vertical, and
-    // whenever it's closer to horizontal the two bubbles sit side by side.
+    // Children of any branch: a straight perpendicular stack past the
+    // parent, spaced by a fixed pixel step -- not a narrow angular fan. A
+    // fan's spacing shrinks as it nears the parent (arc length = radius ×
+    // angle), so it was letting sibling bubbles overlap the moment their
+    // text wrapped to two lines. The step has to clear a bubble's full
+    // WIDTH, not just its height: the perpendicular direction is only
+    // sometimes vertical, and whenever it's closer to horizontal the two
+    // bubbles sit side by side.
     const R2 = 118, STEP = 172;
-    top.forEach((b) => {
-      const kids = nodes.filter((k) => k.parentId === b.id);
-      const dirx = Math.cos(pos[b.id].angle), diry = Math.sin(pos[b.id].angle);
+    function layoutChildrenOf(parentId) {
+      const kids = nodes.filter((k) => k.parentId === parentId);
+      if (!kids.length) return;
+      const p = pos[parentId];
+      const dirx = Math.cos(p.angle), diry = Math.sin(p.angle);
       const perpx = -diry, perpy = dirx;
-      const baseX = pos[b.id].x + dirx * R2, baseY = pos[b.id].y + diry * R2;
+      const baseX = p.x + dirx * R2, baseY = p.y + diry * R2;
       kids.forEach((k, j) => {
         const offset = (j - (kids.length - 1) / 2) * STEP;
-        pos[k.id] = { x: baseX + perpx * offset, y: baseY + perpy * offset, angle: pos[b.id].angle };
+        pos[k.id] = { x: baseX + perpx * offset, y: baseY + perpy * offset, angle: p.angle };
+        layoutChildrenOf(k.id);
       });
-    });
+    }
+    top.forEach((b) => layoutChildrenOf(b.id));
     return pos;
   }
 
@@ -3686,9 +3704,22 @@
 
   function positionBrainstormLayers() {
     const svg = $("#bsLines"), layer = $("#bsNodesLayer");
-    const t = `translate(${bsPanX}px, ${bsPanY}px)`;
+    const t = `translate(${bsPanX}px, ${bsPanY}px) scale(${bsScale})`;
     if (svg) svg.style.transform = t;
     if (layer) layer.style.transform = t;
+    const zl = $("#bsZoomLbl"); if (zl) zl.textContent = Math.round(bsScale * 100) + "%";
+  }
+
+  // Every node gets its own add button, at any depth -- a branch can keep
+  // sprouting branches of its own with no fixed limit.
+  function bsSubtreeHTML(nodes, pos, parentId) {
+    let html = "";
+    nodes.filter((k) => k.parentId === parentId).forEach((k) => {
+      html += bsNodeHTML(k, pos[k.id], false);
+      html += bsAddBtnHTML(k.id, pos[k.id], pos[k.id].angle, 50);
+      html += bsSubtreeHTML(nodes, pos, k.id);
+    });
+    return html;
   }
 
   function drawBrainstormCanvas(n) {
@@ -3707,11 +3738,7 @@
 
     let html = bsNodeHTML({ id: "root", text: n.title }, { x: 0, y: 0 }, true);
     html += bsAddBtnHTML("root", { x: 0, y: 0 }, -Math.PI / 2, 66);
-    top.forEach((b) => {
-      html += bsNodeHTML(b, pos[b.id], false);
-      html += bsAddBtnHTML(b.id, pos[b.id], pos[b.id].angle, 50);
-      nodes.filter((k) => k.parentId === b.id).forEach((k) => { html += bsNodeHTML(k, pos[k.id], false); });
-    });
+    html += bsSubtreeHTML(nodes, pos, null);
     if (!top.length) html += `<div class="bs-empty">Add your first idea — tap the ⊕ below the topic.</div>`;
     layer.innerHTML = html;
     positionBrainstormLayers();
@@ -3732,7 +3759,16 @@
     layer.querySelectorAll("[data-bsdel]").forEach((el) => el.addEventListener("click", (e) => {
       e.stopPropagation();
       const id = el.dataset.bsdel;
-      n.bsNodes = (n.bsNodes || []).filter((b) => b.id !== id && b.parentId !== id);
+      // Deleting a branch takes its whole sub-tree with it, however deep.
+      const doomed = new Set([id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        (n.bsNodes || []).forEach((b) => {
+          if (b.parentId && doomed.has(b.parentId) && !doomed.has(b.id)) { doomed.add(b.id); grew = true; }
+        });
+      }
+      n.bsNodes = (n.bsNodes || []).filter((b) => !doomed.has(b.id));
       touch(n); saveSoon();
       renderBrainstormMap(n);
     }));
@@ -3785,6 +3821,7 @@
 
   function renderBrainstormMap(n) {
     bsAutoCenter(n);
+    bsScale = 1;
     const top = (n.bsNodes || []).filter((b) => !b.parentId);
     $("#body").innerHTML = `
       <div class="bs-toolbar">
@@ -3794,26 +3831,80 @@
       <div class="bs-canvas" id="bsCanvas">
         <svg id="bsLines"></svg>
         <div class="bs-layer" id="bsNodesLayer"></div>
+        <div class="bs-zoom">
+          <button class="bs-zoom-btn" id="bsZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+          <span class="bs-zoom-lbl" id="bsZoomLbl">100%</span>
+          <button class="bs-zoom-btn" id="bsZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+        </div>
       </div>`;
     drawBrainstormCanvas(n);
     const lb = $("#bsListBtn"); if (lb) lb.onclick = () => convertBrainstormToList(n);
     const canvas = $("#bsCanvas");
+
+    const zoomBy = (factor) => { bsScale = bsClampScale(bsScale * factor); positionBrainstormLayers(); };
+    const zi = $("#bsZoomIn"); if (zi) zi.onclick = () => zoomBy(1.25);
+    const zo = $("#bsZoomOut"); if (zo) zo.onclick = () => zoomBy(1 / 1.25);
+
+    // Pan (one finger/pointer) and pinch-zoom (two) share the same
+    // pointer-capture tracking -- the pointer count decides which gesture
+    // is in play, and going from two fingers back to one just resumes a
+    // plain pan from wherever that finger is now.
     let dragging = false, lastX = 0, lastY = 0;
+    const active = new Map(); // pointerId -> {x, y}
+    let pinchStartDist = null, pinchStartScale = 1;
+
     canvas.addEventListener("pointerdown", (e) => {
-      if (e.target.closest(".bs-node")) return;
-      dragging = true; lastX = e.clientX; lastY = e.clientY;
-      canvas.classList.add("grabbing");
-      canvas.setPointerCapture(e.pointerId);
+      if (e.target.closest(".bs-zoom")) return;
+      // A single finger landing on a bubble must stay free to tap/edit it
+      // (and its own click handler needs the real click, so we skip pointer
+      // capture there) -- but a SECOND finger coming down, wherever it
+      // lands, is unambiguously a pinch and must still count. Gating the
+      // whole gesture on "did this touch start on a node" was blocking
+      // real two-finger pinches that happen to start over the root bubble,
+      // which fills most of the canvas on a small brainstorm.
+      const onNode = !!e.target.closest(".bs-node");
+      if (!onNode) canvas.setPointerCapture(e.pointerId);
+      active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (active.size === 2) {
+        const [a, b] = [...active.values()];
+        pinchStartDist = Math.hypot(a.x - b.x, a.y - b.y);
+        pinchStartScale = bsScale;
+        dragging = false;
+      } else if (active.size === 1 && !onNode) {
+        dragging = true; lastX = e.clientX; lastY = e.clientY;
+        canvas.classList.add("grabbing");
+      }
     });
     canvas.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      bsPanX += e.clientX - lastX; bsPanY += e.clientY - lastY;
-      lastX = e.clientX; lastY = e.clientY;
-      positionBrainstormLayers();
+      if (!active.has(e.pointerId)) return;
+      active.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (active.size === 2 && pinchStartDist) {
+        const [a, b] = [...active.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        bsScale = bsClampScale(pinchStartScale * (dist / pinchStartDist));
+        positionBrainstormLayers();
+        return;
+      }
+      if (dragging && active.size === 1) {
+        bsPanX += e.clientX - lastX; bsPanY += e.clientY - lastY;
+        lastX = e.clientX; lastY = e.clientY;
+        positionBrainstormLayers();
+      }
     });
-    const stopDrag = () => { dragging = false; canvas.classList.remove("grabbing"); };
+    const stopDrag = (e) => {
+      active.delete(e.pointerId);
+      if (active.size < 2) pinchStartDist = null;
+      if (active.size === 0) { dragging = false; canvas.classList.remove("grabbing"); }
+    };
     canvas.addEventListener("pointerup", stopDrag);
     canvas.addEventListener("pointercancel", stopDrag);
+
+    // Trackpad pinch (and ctrl+scroll) arrives as a wheel event; the canvas
+    // has nothing else to do with a bare scroll, so any wheel zooms.
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      zoomBy(Math.exp(-e.deltaY * 0.0015));
+    }, { passive: false });
   }
 
   function renderBrainstorm(n) {
@@ -3821,21 +3912,35 @@
     else renderBrainstormMap(n);
   }
 
+  // All descendants of a branch, at any depth, in the order each one was
+  // reached going deeper before moving to the next sibling -- so a node
+  // still lands right after its own children in the flattened result.
+  function bsDescendants(nodes, id) {
+    let out = [];
+    nodes.filter((b) => b.parentId === id).forEach((child) => {
+      out.push(child);
+      out = out.concat(bsDescendants(nodes, child.id));
+    });
+    return out;
+  }
+
   // Converts the branch tree into a real checklist, reusing renderChecklist
   // wholesale. IDs are shared between a bsNode and its resulting item/sub,
   // so re-running this after adding new branches merges in the new ones
-  // without disturbing already-checked items.
+  // without disturbing already-checked items. The map itself has no depth
+  // limit, but a checklist only has one level of sub-items, so anything
+  // past a top-level branch's direct children -- however many generations
+  // deep -- flattens into that same sub-item list.
   function convertBrainstormToList(n) {
     const branches = (n.bsNodes || []).filter((b) => !b.parentId);
     if (!branches.length) return;
-    const kidsOf = (id) => (n.bsNodes || []).filter((b) => b.parentId === id);
     n.items = n.items || [];
     branches.forEach((b) => {
       let item = n.items.find((it) => it.id === b.id);
       if (!item) { item = { id: b.id, text: b.text, checked: false, sub: [] }; n.items.push(item); }
       else item.text = b.text;
       item.sub = item.sub || [];
-      kidsOf(b.id).forEach((sb) => {
+      bsDescendants(n.bsNodes || [], b.id).forEach((sb) => {
         let sub = item.sub.find((s) => s.id === sb.id);
         if (!sub) item.sub.push({ id: sb.id, text: sb.text, checked: false });
         else sub.text = sb.text;

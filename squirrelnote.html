@@ -874,7 +874,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.47-koala-pet";
+  const APP_BUILD = "2026-08-13.48-per-species-pet-names";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -883,7 +883,7 @@
     ["Moss", "#6f9b57"], ["Honey", "#e0a92e"],
   ];
   const NOTE_COLORS = [null, "#e57373", "#f0a35e", "#e6c34a", "#7fb56e", "#6fb0d4", "#9b8ad4", "#d98bb0"];
-  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petName: "Chip", petSpecies: "squirrel", syncCode: null, syncedAt: null,
+  const DEFAULT_PREFS = { theme: "system", accent: "#c1782f", bodyFont: "sans", density: "comfortable", view: "grid", sort: "updated", sound: false, colorByTag: true, autoColor: true, lowStim: false, affirmations: true, petNames: { squirrel: "Chip", koala: "Joey" }, petSpecies: "squirrel", syncCode: null, syncedAt: null,
     shareTag: "work", shareOutCode: null, shareOutedAt: null, shareInCode: null, shareInedAt: null, calExpanded: false };
   const DEFAULT_AFFIRMATIONS = [
     "One small step still counts. 🌱",
@@ -927,7 +927,18 @@
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const now = () => new Date().toISOString();
 
-  function loadPrefs() { try { const r = localStorage.getItem(PREFS_KEY); if (r) prefs = { ...DEFAULT_PREFS, ...JSON.parse(r) }; } catch (e) {} }
+  function loadPrefs() {
+    try {
+      const r = localStorage.getItem(PREFS_KEY);
+      if (!r) return;
+      const saved = JSON.parse(r);
+      prefs = { ...DEFAULT_PREFS, ...saved };
+      // Pre-koala saves have a single flat petName instead of petNames --
+      // carry that custom name over to the squirrel slot rather than
+      // silently resetting it back to "Chip".
+      if (saved.petName && !saved.petNames) prefs.petNames = { ...DEFAULT_PREFS.petNames, squirrel: saved.petName };
+    } catch (e) {}
+  }
   function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} syncCodeToNative(); }
   function loadNotes() { try { const r = localStorage.getItem(NOTES_KEY); if (r) notes = JSON.parse(r); } catch (e) {} }
   let quotaWarned = false;
@@ -1729,8 +1740,9 @@
   function renderPet() {
     const page = $("#petPage"); if (!page) return;
     const state = petState();
-    const name = prefs.petName || "Chip";
     const species = prefs.petSpecies === "koala" ? "koala" : "squirrel";
+    const petNames = prefs.petNames || DEFAULT_PREFS.petNames;
+    const name = petNames[species] || DEFAULT_PREFS.petNames[species];
     const dayHash = tagHash(todayKey());
     const msg = state === "asleep" ? PET_ASLEEP_MSGS[dayHash % PET_ASLEEP_MSGS.length] : PET_AWAKE_MSGS[dayHash % PET_AWAKE_MSGS.length];
     const routines = petTodaysRoutines();
@@ -1770,7 +1782,11 @@
       stir();
     });
     const nameInput = $("#petNameInput");
-    if (nameInput) nameInput.addEventListener("change", () => { prefs.petName = nameInput.value.trim() || "Chip"; savePrefs(); renderPet(); });
+    if (nameInput) nameInput.addEventListener("change", () => {
+      const val = nameInput.value.trim() || DEFAULT_PREFS.petNames[species];
+      prefs.petNames = { ...(prefs.petNames || DEFAULT_PREFS.petNames), [species]: val };
+      savePrefs(); renderPet();
+    });
     $("#petSpeciesRow")?.querySelectorAll("[data-species]").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();

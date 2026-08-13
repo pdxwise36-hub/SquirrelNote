@@ -862,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.38-dvh-fix";
+  const APP_BUILD = "2026-08-13.39-quicknote-drain-on-resume";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -4410,7 +4410,7 @@
   // skipping the pull/merge half of a normal sync) gives it a real chance to
   // land even in that exact moment — this is what a change made seconds
   // before locking your phone needs.
-  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); flushSyncNow(); flushShareOutNow(); } else { runSync(); runShareOut(); runShareIn(); } });
+  document.addEventListener("visibilitychange", () => { if (document.hidden) { flushSave(); flushSyncNow(); flushShareOutNow(); } else { runSync(); runShareOut(); runShareIn(); drainQuickCaptures(); } });
   window.addEventListener("pagehide", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });
   window.addEventListener("beforeunload", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });
   window.addEventListener("blur", () => { flushSave(); flushSyncNow(); flushShareOutNow(); });

@@ -119,7 +119,7 @@
   #rail {
     position: relative; display: flex; flex-direction: column; gap: 1.05rem;
     background: var(--rail-bg); color: var(--rail-fg);
-    padding: 1.15rem 0.8rem 0.9rem; overflow: hidden;
+    padding: calc(1.15rem + env(safe-area-inset-top)) 0.8rem 0.9rem; overflow: hidden;
   }
   #rail::before { /* ambient accent glow, top-left */
     content: ""; position: absolute; top: -120px; left: -80px; width: 260px; height: 260px;
@@ -176,7 +176,7 @@
 
   /* ---------- List column -------------------------------------------------- */
   #listcol { display: flex; flex-direction: column; background: var(--app-bg); overflow: hidden; }
-  #topbar { display: flex; align-items: center; gap: 0.5rem; padding: 0.8rem 0.85rem 0.5rem; }
+  #topbar { display: flex; align-items: center; gap: 0.5rem; padding: calc(0.8rem + env(safe-area-inset-top)) 0.85rem 0.5rem; }
   #search { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 99px; padding: 0.5rem 0.95rem; font-size: 0.88rem; box-shadow: var(--shadow-sm); transition: border-color 0.15s, box-shadow 0.15s; }
   #search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .icon-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 0.42rem 0.55rem; color: var(--muted); box-shadow: var(--shadow-sm); transition: transform 0.12s var(--ease-spring); }
@@ -759,7 +759,7 @@
   #app.rail-open #rail { transform: none; box-shadow: var(--shadow-lg); }
   #app.rail-open #railScrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0,0,0,0.4); animation: fade 0.18s ease; }
 
-  #editor { display: none; padding: 1.1rem 1.1rem calc(9.5rem + env(safe-area-inset-bottom)); }
+  #editor { display: none; padding: calc(1.1rem + env(safe-area-inset-top)) 1.1rem calc(9.5rem + env(safe-area-inset-bottom)); }
   #app[data-selected="1"] #listcol { display: none; }
   #app[data-selected="1"] #editor { display: block; }
 
@@ -862,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.40-quicknote-cloud-append";
+  const APP_BUILD = "2026-08-13.41-status-bar-safe-area";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [

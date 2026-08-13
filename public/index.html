@@ -190,22 +190,26 @@
 
   // ---- Safe-area-inset relay ---------------------------------------------
   // Same nested-iframe problem as everything else on this page: env(safe-area-
-  // inset-top) only resolves to the real notch/status-bar height for the
-  // OUTERMOST browsing context, which is THIS page (loaded natively edge-to-
-  // edge via viewport-fit=cover) -- not the srcdoc iframe the app actually
+  // inset-*) only resolves to the real notch/status-bar/nav-bar insets for
+  // the OUTERMOST browsing context, which is THIS page (loaded natively edge-
+  // to-edge via viewport-fit=cover) -- not the srcdoc iframe the app actually
   // renders in, where the same env() always reports 0 no matter what that
-  // iframe's own viewport meta tag says. Measure it here with a throwaway
-  // probe element and relay the real pixel value down.
-  function measureSafeTop() {
+  // iframe's own viewport meta tag says. Measure both here with a throwaway
+  // probe element and relay the real pixel values down. (The app also has a
+  // visualViewport-based guess for the bottom inset, relayed separately as
+  // sn-nav-overlay, for the Android devices where even THIS real env() value
+  // doesn't cover the on-screen 3-button nav bar -- squirrelnote.html takes
+  // whichever of the two signals actually reports something.)
+  function measureSafeInset(side) {
     var probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top);pointer-events:none;visibility:hidden";
+    probe.style.cssText = "position:fixed;" + side + ":0;left:0;width:1px;height:env(safe-area-inset-" + side + ");pointer-events:none;visibility:hidden";
     document.body.appendChild(probe);
     var h = probe.getBoundingClientRect().height;
     document.body.removeChild(probe);
     return h;
   }
   function relaySafeArea() {
-    try { frame.contentWindow.postMessage({ type: "sn-safe-area", top: measureSafeTop() }, "*"); } catch (e) {}
+    try { frame.contentWindow.postMessage({ type: "sn-safe-area", top: measureSafeInset("top"), bottom: measureSafeInset("bottom") }, "*"); } catch (e) {}
   }
   window.addEventListener("resize", relaySafeArea);
   window.addEventListener("orientationchange", function () { setTimeout(relaySafeArea, 200); });

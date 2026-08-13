@@ -862,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.41-status-bar-safe-area";
+  const APP_BUILD = "2026-08-13.42-quicknote-iframe-bridge-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -947,11 +947,12 @@
   // natively (see QuickNoteReceiver in the android-app project) since
   // there's no running page to save them into at the moment they're typed.
   function drainQuickCaptures() {
-    const qc = window.Capacitor?.Plugins?.QuickCapture;
-    if (!qc) return;
-    qc.drain().then((r) => {
-      (r?.notes || []).forEach((text) => { if (text && text.trim()) createNoteFromText(text, ""); });
-    }).catch(() => {});
+    // This app runs inside a same-origin srcdoc IFRAME (see index.html) --
+    // a separate document from the top-level page the native wrapper
+    // actually loads, so Capacitor's injected window.Capacitor bridge lives
+    // up there, not in here. Relay through postMessage the same way push
+    // notifications already have to (see handlePushMessage).
+    if (EMBEDDED) { try { parent.postMessage({ type: "sn-quickcapture-drain" }, "*"); } catch (e) {} }
   }
   // Voice-to-text dictation, shared by Quick Capture and Brain Dump.
   // Android Chrome's "continuous" speech recognition silently restarts
@@ -3087,11 +3088,11 @@
   // QuickNoteReceiver in android-app/) so a note typed into the lock-screen
   // notification can be saved straight to the cloud, without ever needing
   // this page to actually be running.
-  function nativeQuickCapturePlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.QuickCapture; }
   function syncCodeToNative() {
-    const qc = nativeQuickCapturePlugin();
-    if (!qc || !qc.setSyncCode) return;
-    qc.setSyncCode({ code: prefs.syncCode || "" }).catch(() => {});
+    // Same iframe-isolation reasoning as drainQuickCaptures() above --
+    // relay to the top-level page, which is the one Capacitor actually
+    // injects its native bridge into.
+    if (EMBEDDED) { try { parent.postMessage({ type: "sn-quickcapture-setcode", code: prefs.syncCode || "" }, "*"); } catch (e) {} }
   }
   let pushState = { supported: null, permission: "default", subscribed: false, endpoint: null };
   let pushLblUpdater = null;
@@ -4405,6 +4406,10 @@
     // reliable backstop for the flush handlers below — this iframe's own
     // visibilitychange/pagehide/blur don't always fire in time on mobile.
     if (e && e.data && e.data.type === "sn-flush") { flushSave(); flushSyncNow(); flushShareOutNow(); return; }
+    if (e && e.data && e.data.type === "sn-quickcapture-drained") {
+      (e.data.notes || []).forEach((text) => { if (text && text.trim()) createNoteFromText(text, ""); });
+      return;
+    }
     handlePushMessage(e);
   });
   // The Android home-screen widget launches straight into Brain Dump by

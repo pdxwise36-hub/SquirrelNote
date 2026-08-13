@@ -124,6 +124,32 @@
       return;
     }
 
+    // The app itself lives in the srcdoc iframe below, a separate document
+    // from this one -- so it's THIS page's window.Capacitor (injected by the
+    // native wrapper, see android-app/) that can actually reach the
+    // QuickCapture plugin, not the iframe's. Same relay pattern as push above.
+    if (msg.type === "sn-quickcapture-setcode") {
+      try {
+        var qc = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.QuickCapture;
+        if (qc && qc.setSyncCode) qc.setSyncCode({ code: msg.code || "" }).catch(function () {});
+      } catch (e) {}
+      return;
+    }
+
+    if (msg.type === "sn-quickcapture-drain") {
+      try {
+        var qc2 = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.QuickCapture;
+        if (qc2 && qc2.drain) {
+          qc2.drain()
+            .then(function (r) { reply({ type: "sn-quickcapture-drained", notes: (r && r.notes) || [] }); })
+            .catch(function () { reply({ type: "sn-quickcapture-drained", notes: [] }); });
+        } else {
+          reply({ type: "sn-quickcapture-drained", notes: [] });
+        }
+      } catch (e) { reply({ type: "sn-quickcapture-drained", notes: [] }); }
+      return;
+    }
+
     if (msg.type === "sn-push-unsubscribe") {
       getRegistration()
         .then(function (reg) { return reg.pushManager.getSubscription(); })

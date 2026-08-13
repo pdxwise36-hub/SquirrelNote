@@ -347,7 +347,8 @@
     animation: bspop 0.28s var(--ease-spring) both; }
   @keyframes bspop { from { transform: translate(-50%, -50%) scale(0.6); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
   .bs-node-root { width: 148px; min-height: 76px; font-size: 0.92rem; background: var(--accent); color: #fff8ef; border-radius: 22px; cursor: default; padding: 0.6rem 0.9rem; }
-  .bs-node-branch { min-width: 108px; max-width: 148px; font-size: 0.78rem; background: var(--surface); color: var(--fg); border: 1.5px solid var(--border); }
+  .bs-node-branch { min-width: 108px; max-width: 148px; font-size: 0.78rem; background: var(--surface); color: var(--fg); border: 1.5px solid var(--border); overflow-wrap: break-word; z-index: 1; }
+  .bs-node-branch:has(input) { z-index: 2; }
   .bs-node-branch:hover { border-color: var(--accent); }
   .bs-node input { width: 100%; background: none; border: none; text-align: center; font: inherit; color: inherit; }
   .bs-node input:focus { outline: none; }
@@ -846,7 +847,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.34-brainstorm";
+  const APP_BUILD = "2026-08-13.35-brainstorm-spacing-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -3629,7 +3630,7 @@
     const nodes = n.bsNodes || [];
     const top = nodes.filter((b) => !b.parentId);
     const pos = {};
-    const R1 = 130, R2 = 92;
+    const R1 = 150;
     // Fan branches upward/outward from the root, growing the arc as more
     // branches arrive (capped at 280°) rather than spacing them evenly
     // around a full circle -- an even 2-around-a-circle split lands both
@@ -3642,12 +3643,22 @@
       const angle = -Math.PI / 2 - half + arc * t;
       pos[b.id] = { x: Math.cos(angle) * R1, y: Math.sin(angle) * R1, angle };
     });
+    // Sub-branches: a straight perpendicular stack past the parent, spaced
+    // by a fixed pixel step -- not a narrow angular fan. A fan's spacing
+    // shrinks as it nears the parent (arc length = radius × angle), so it
+    // was letting sibling bubbles overlap the moment their text wrapped to
+    // two lines. The step has to clear a bubble's full WIDTH, not just its
+    // height: the perpendicular direction is only sometimes vertical, and
+    // whenever it's closer to horizontal the two bubbles sit side by side.
+    const R2 = 118, STEP = 172;
     top.forEach((b) => {
       const kids = nodes.filter((k) => k.parentId === b.id);
+      const dirx = Math.cos(pos[b.id].angle), diry = Math.sin(pos[b.id].angle);
+      const perpx = -diry, perpy = dirx;
+      const baseX = pos[b.id].x + dirx * R2, baseY = pos[b.id].y + diry * R2;
       kids.forEach((k, j) => {
-        const spread = kids.length > 1 ? (j / (kids.length - 1) - 0.5) * 0.9 : 0;
-        const angle = pos[b.id].angle + spread;
-        pos[k.id] = { x: pos[b.id].x + Math.cos(angle) * R2, y: pos[b.id].y + Math.sin(angle) * R2, angle };
+        const offset = (j - (kids.length - 1) / 2) * STEP;
+        pos[k.id] = { x: baseX + perpx * offset, y: baseY + perpy * offset, angle: pos[b.id].angle };
       });
     });
     return pos;
@@ -3756,8 +3767,24 @@
     }
   }
 
+  // Centers the pan on wherever the tree actually is, instead of always on
+  // the root -- once branches fan upward and outward, resetting pan to
+  // (0,0) every render left new nodes clipped above the canvas's visible
+  // (overflow: hidden) area until the user manually dragged to find them.
+  function bsAutoCenter(n) {
+    const pos = bsLayout(n);
+    const pts = [{ x: 0, y: 0 }, ...Object.values(pos)];
+    const margin = 90; // roughly a node's half-width/height plus its add-button
+    const minX = Math.min(...pts.map((p) => p.x)) - margin;
+    const maxX = Math.max(...pts.map((p) => p.x)) + margin;
+    const minY = Math.min(...pts.map((p) => p.y)) - margin;
+    const maxY = Math.max(...pts.map((p) => p.y)) + margin;
+    bsPanX = -(minX + maxX) / 2;
+    bsPanY = -(minY + maxY) / 2;
+  }
+
   function renderBrainstormMap(n) {
-    bsPanX = 0; bsPanY = 0;
+    bsAutoCenter(n);
     const top = (n.bsNodes || []).filter((b) => !b.parentId);
     $("#body").innerHTML = `
       <div class="bs-toolbar">

@@ -210,6 +210,26 @@
   window.addEventListener("resize", relaySafeArea);
   window.addEventListener("orientationchange", function () { setTimeout(relaySafeArea, 200); });
 
+  // ---- Nav-bar-overlay relay ----------------------------------------------
+  // Same story again: some Android browsers/WebViews draw the on-screen
+  // back/home/recents bar as an overlay instead of resizing the page, and
+  // don't report it through env(safe-area-inset-bottom). The app used to
+  // guess at this with its OWN window.visualViewport vs window.innerHeight,
+  // but that's measured inside the srcdoc iframe -- a fixed-size box the
+  // overlay never actually shrinks, so it could never see a real gap.  THIS
+  // page is the one the overlay is actually drawn on top of, so it measures
+  // the gap and relays the pixel value down instead.
+  function measureNavOverlay() {
+    if (!window.visualViewport) return 0;
+    var gap = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+    return gap > 4 && gap < 80 ? Math.round(gap) : 0;
+  }
+  function relayNavOverlay() {
+    try { frame.contentWindow.postMessage({ type: "sn-nav-overlay", px: measureNavOverlay() }, "*"); } catch (e) {}
+  }
+  window.addEventListener("resize", relayNavOverlay);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", relayNavOverlay);
+
   // Render into a same-origin srcdoc iframe. Because the iframe element is sized
   // to the visible screen (position:fixed; inset:0), the app inside lays out at
   // the phone's real width — it does NOT rely on the viewport meta, so the
@@ -222,6 +242,7 @@
       }, { once: true });
     }
     frame.addEventListener("load", relaySafeArea, { once: true });
+    frame.addEventListener("load", relayNavOverlay, { once: true });
     frame.srcdoc = html;
     frame.style.display = "block";
     var ld = document.getElementById("ld");

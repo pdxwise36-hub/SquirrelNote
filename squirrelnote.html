@@ -862,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.43-safe-area-iframe-relay-fix";
+  const APP_BUILD = "2026-08-13.44-nav-overlay-iframe-relay-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2367,7 +2367,17 @@
   // giving us. A big gap almost always means the on-screen keyboard is open
   // instead (which the padding below has nothing to do with), so this only
   // acts on gaps in the size range a nav bar actually is.
+  //
+  // BUT this only means anything measured on the true outermost document --
+  // this app always runs inside a same-origin srcdoc iframe (see index.html),
+  // and that iframe element is a fixed-size box the OS overlay never actually
+  // shrinks, so window.visualViewport/innerHeight measured HERE never see a
+  // real gap (same root cause as the safe-area-inset-top bug). index.html
+  // relays a real measurement from the outer page instead; this local version
+  // only runs as a fallback for the rare case of opening this file directly,
+  // unembedded, with no outer page to relay anything.
   function syncNavOverlay() {
+    if (window.parent !== window) return;
     if (!window.visualViewport) return;
     const gap = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
     const overlay = gap > 4 && gap < 80 ? Math.round(gap) : 0;
@@ -4413,6 +4423,14 @@
     // outermost context, so it measures the real value and relays it here.
     if (e && e.data && e.data.type === "sn-safe-area" && typeof e.data.top === "number") {
       document.documentElement.style.setProperty("--safe-top", e.data.top + "px");
+      return;
+    }
+    // Same reasoning as sn-safe-area above, for the Android on-screen nav
+    // bar overlay: only the outer page's own visualViewport ever sees a real
+    // gap, so it measures and relays it instead of the (always-0-here)
+    // in-iframe syncNavOverlay() heuristic higher up in this file.
+    if (e && e.data && e.data.type === "sn-nav-overlay" && typeof e.data.px === "number") {
+      document.documentElement.style.setProperty("--nav-overlay", e.data.px + "px");
       return;
     }
     if (e && e.data && e.data.type === "sn-quickcapture-drained") {

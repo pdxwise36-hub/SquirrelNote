@@ -188,6 +188,28 @@
   window.addEventListener("beforeunload", relayFlush);
   window.addEventListener("blur", relayFlush);
 
+  // ---- Safe-area-inset relay ---------------------------------------------
+  // Same nested-iframe problem as everything else on this page: env(safe-area-
+  // inset-top) only resolves to the real notch/status-bar height for the
+  // OUTERMOST browsing context, which is THIS page (loaded natively edge-to-
+  // edge via viewport-fit=cover) -- not the srcdoc iframe the app actually
+  // renders in, where the same env() always reports 0 no matter what that
+  // iframe's own viewport meta tag says. Measure it here with a throwaway
+  // probe element and relay the real pixel value down.
+  function measureSafeTop() {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;top:0;left:0;width:1px;height:env(safe-area-inset-top);pointer-events:none;visibility:hidden";
+    document.body.appendChild(probe);
+    var h = probe.getBoundingClientRect().height;
+    document.body.removeChild(probe);
+    return h;
+  }
+  function relaySafeArea() {
+    try { frame.contentWindow.postMessage({ type: "sn-safe-area", top: measureSafeTop() }, "*"); } catch (e) {}
+  }
+  window.addEventListener("resize", relaySafeArea);
+  window.addEventListener("orientationchange", function () { setTimeout(relaySafeArea, 200); });
+
   // Render into a same-origin srcdoc iframe. Because the iframe element is sized
   // to the visible screen (position:fixed; inset:0), the app inside lays out at
   // the phone's real width — it does NOT rely on the viewport meta, so the
@@ -199,6 +221,7 @@
         try { frame.contentWindow.postMessage("sn-capture", "*"); } catch (e) {}
       }, { once: true });
     }
+    frame.addEventListener("load", relaySafeArea, { once: true });
     frame.srcdoc = html;
     frame.style.display = "block";
     var ld = document.getElementById("ld");

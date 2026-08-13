@@ -39,4 +39,20 @@ public class QuickCapturePlugin extends Plugin {
         result.put("notes", notes);
         call.resolve(result);
     }
+
+    // Called from squirrelnote.html (syncCodeToNative()) whenever the app's
+    // own sync code changes -- lets QuickNoteReceiver save a quick note
+    // straight to the cloud even when this page isn't running at all.
+    @PluginMethod
+    public void setSyncCode(PluginCall call) {
+        String code = call.getString("code", "");
+        Context ctx = getContext();
+        SharedPreferences prefs = ctx.getSharedPreferences(QuickNoteReceiver.PREFS_NAME, Context.MODE_PRIVATE);
+        if (code == null || code.isEmpty()) {
+            prefs.edit().remove(QuickNoteReceiver.PREF_SYNC_CODE_KEY).apply();
+        } else {
+            prefs.edit().putString(QuickNoteReceiver.PREF_SYNC_CODE_KEY, code).apply();
+        }
+        call.resolve();
+    }
 }

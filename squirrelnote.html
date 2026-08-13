@@ -862,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.39-quicknote-drain-on-resume";
+  const APP_BUILD = "2026-08-13.40-quicknote-cloud-append";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -916,7 +916,7 @@
   const now = () => new Date().toISOString();
 
   function loadPrefs() { try { const r = localStorage.getItem(PREFS_KEY); if (r) prefs = { ...DEFAULT_PREFS, ...JSON.parse(r) }; } catch (e) {} }
-  function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} }
+  function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {} syncCodeToNative(); }
   function loadNotes() { try { const r = localStorage.getItem(NOTES_KEY); if (r) notes = JSON.parse(r); } catch (e) {} }
   let quotaWarned = false;
   function persist() {
@@ -3083,6 +3083,16 @@
   // window.Capacitor doesn't exist.
   const IS_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
   function nativePushPlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.PushNotifications; }
+  // Keeps the native side's copy of the sync code current (see
+  // QuickNoteReceiver in android-app/) so a note typed into the lock-screen
+  // notification can be saved straight to the cloud, without ever needing
+  // this page to actually be running.
+  function nativeQuickCapturePlugin() { return window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.QuickCapture; }
+  function syncCodeToNative() {
+    const qc = nativeQuickCapturePlugin();
+    if (!qc || !qc.setSyncCode) return;
+    qc.setSyncCode({ code: prefs.syncCode || "" }).catch(() => {});
+  }
   let pushState = { supported: null, permission: "default", subscribed: false, endpoint: null };
   let pushLblUpdater = null;
   function requestPushStatus() { if (EMBEDDED) try { parent.postMessage({ type: "sn-push-status" }, "*"); } catch (e) {} }
@@ -4464,6 +4474,7 @@
   purgeOldTrash();
   checkHash();
   applyPrefs(); renderNav(); renderList(); renderEditor(); setSelectedFlag(); renderStreak(); renderAffirmation(); updatePetTabBadge();
+  syncCodeToNative();
   drainQuickCaptures();
   scheduleReminders();
   maybeWeeklyWins();

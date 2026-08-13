@@ -332,6 +332,33 @@
   .additem input:focus { outline: none; border-color: var(--accent); }
   .link { color: var(--accent); font-size: 0.82rem; font-weight: 600; align-self: flex-start; margin-top: 0.5rem; }
   .link:hover { text-decoration: underline; }
+
+  /* ---- brainstorm map ---- */
+  .bs-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0 0.2rem 0.6rem; flex-wrap: wrap; }
+  .bs-hint { font-size: 0.8rem; color: var(--muted); }
+  .bs-canvas { position: relative; height: min(62vh, 520px); border-radius: 16px; background: var(--app-bg); border: 1px solid var(--border); overflow: hidden; touch-action: none; cursor: grab; }
+  .bs-canvas.grabbing { cursor: grabbing; }
+  .bs-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .bs-line { stroke: var(--border); stroke-width: 2; fill: none; }
+  .bs-layer { position: absolute; inset: 0; }
+  .bs-node { position: absolute; transform: translate(-50%, -50%); display: flex; align-items: center; justify-content: center;
+    text-align: center; font-family: var(--round); font-weight: 700; line-height: 1.25; border-radius: 16px;
+    padding: 0.5rem 0.7rem; cursor: pointer; box-shadow: 0 6px 16px -10px rgba(0,0,0,0.35);
+    animation: bspop 0.28s var(--ease-spring) both; }
+  @keyframes bspop { from { transform: translate(-50%, -50%) scale(0.6); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
+  .bs-node-root { width: 148px; min-height: 76px; font-size: 0.92rem; background: var(--accent); color: #fff8ef; border-radius: 22px; cursor: default; padding: 0.6rem 0.9rem; }
+  .bs-node-branch { min-width: 108px; max-width: 148px; font-size: 0.78rem; background: var(--surface); color: var(--fg); border: 1.5px solid var(--border); }
+  .bs-node-branch:hover { border-color: var(--accent); }
+  .bs-node input { width: 100%; background: none; border: none; text-align: center; font: inherit; color: inherit; }
+  .bs-node input:focus { outline: none; }
+  .bs-del { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface-2);
+    border: 1px solid var(--border); color: var(--muted); font-size: 0.6rem; display: grid; place-items: center; opacity: 0; transition: opacity 0.14s; }
+  .bs-node:hover .bs-del { opacity: 1; }
+  .bs-add { width: 30px; height: 30px; padding: 0; border-radius: 50%; background: var(--surface); border: 1.5px dashed var(--border);
+    color: var(--muted); font-size: 1.05rem; font-weight: 700; cursor: pointer; animation: none; }
+  .bs-add:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+  .bs-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+    color: var(--muted); font-size: 0.85rem; padding: 2rem; pointer-events: none; }
   .bulk { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 0.8rem; display: flex; flex-direction: column; gap: 0.55rem; }
   .bulk textarea { min-height: 96px; resize: vertical; background: var(--app-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.6rem; font-size: 0.88rem; font-family: var(--body-font); }
   .bulk textarea:focus { outline: none; border-color: var(--accent); }
@@ -747,6 +774,7 @@
         <button class="btn btn-soft" id="newNote" style="flex:1">＋ Note</button>
         <button class="btn btn-soft" id="newList" style="flex:1">✓ List</button>
       </div>
+      <button class="btn btn-soft" id="newBrainstorm">🕸️ Brainstorm</button>
     </div>
     <div class="stats" id="stats"></div>
     <nav id="nav" class="scroll"></nav>
@@ -818,7 +846,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-12.33-today-view";
+  const APP_BUILD = "2026-08-13.34-brainstorm";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -1776,7 +1804,7 @@
   // anyone would look at this page there's nothing left in that state to
   // show.)
   function todayItemBody(n) {
-    if (n.kind === "checklist") {
+    if (n.kind === "checklist" || (n.kind === "brainstorm" && n.bsView === "list")) {
       const items = n.items || [];
       if (!items.length) return `<div class="cal-item-empty">Empty checklist</div>`;
       const shown = items.slice(0, 6);
@@ -1819,7 +1847,7 @@
   // text snippet) for the calendar's day panel -- same idea, smaller: no
   // grip/pin/photo, and checklist items are capped at 3 instead of 6.
   function calItemPreview(n) {
-    if (n.kind === "checklist") {
+    if (n.kind === "checklist" || (n.kind === "brainstorm" && n.bsView === "list")) {
       const items = n.items || [];
       if (!items.length) return `<div class="cal-item-empty">Empty checklist</div>`;
       const shown = items.slice(0, 3);
@@ -2389,6 +2417,13 @@
     renderNav(); renderList(); renderEditor(); setSelectedFlag();
     setTimeout(() => { const t = $("#edTitle"); if (t) { t.focus(); t.select(); } }, 30);
   }
+  function newBrainstorm() {
+    const n = { id: uid(), kind: "brainstorm", title: "", content: "", items: [], bsNodes: [], bsView: "map",
+      tags: [], folder: filter.folder || null, color: null, pinned: false, created: now(), updated: now() };
+    notes.unshift(n); selectedId = n.id; showBulk = false; persist();
+    renderNav(); renderList(); renderEditor(); setSelectedFlag();
+    setTimeout(() => { const t = $("#edTitle"); if (t) { t.focus(); t.select(); } }, 30);
+  }
   function patch(id, p) { const n = notes.find((x) => x.id === id); if (!n) return; Object.assign(n, p); touch(n); saveSoon(); }
   // Deleting moves a note to Trash (soft-delete) rather than removing it right
   // away — the Undo snackbar just clears the flag, and it also stays
@@ -2636,6 +2671,11 @@
   }
   function preview(n) {
     if (n.kind === "checklist") { const done = (n.items || []).filter(itemDone).length; return (n.items || []).length ? done + " of " + n.items.length + " done" : "Empty checklist"; }
+    if (n.kind === "brainstorm") {
+      if (n.bsView === "list") { const done = (n.items || []).filter(itemDone).length; return (n.items || []).length ? done + " of " + n.items.length + " done" : "Empty checklist"; }
+      const count = (n.bsNodes || []).length;
+      return count ? count + " idea" + (count === 1 ? "" : "s") : "Empty brainstorm";
+    }
     return stripHtml(n.content).slice(0, 100) || "Empty note";
   }
 
@@ -2651,7 +2691,8 @@
   }
 
   function cardInner(n) {
-    const isChk = n.kind === "checklist";
+    const isChk = n.kind === "checklist" || (n.kind === "brainstorm" && n.bsView === "list");
+    const isBsMap = n.kind === "brainstorm" && n.bsView !== "list";
     let body;
     if (isChk) {
       const items = n.items || [];
@@ -2659,6 +2700,12 @@
       body = items.length
         ? `<div class="cl">${shown.map((it) => `<div class="cl-row ${itemDone(it) ? "done" : ""}"><span class="cbx" data-cardtoggle="${it.id}">${ACORN(itemDone(it))}</span><span class="t">${esc(it.text) || "…"}${(it.sub && it.sub.length) ? ` <span style="opacity:.5">(${it.sub.filter((s) => s.checked).length}/${it.sub.length})</span>` : ""}</span></div>`).join("")}</div>${items.length > 6 ? `<div class="more">+ ${items.length - 6} more</div>` : ""}`
         : `<div class="card-text" style="opacity:.6">Empty checklist</div>`;
+    } else if (isBsMap) {
+      const branches = (n.bsNodes || []).filter((b) => !b.parentId);
+      const shown = branches.slice(0, 6);
+      body = branches.length
+        ? `<div class="cl">${shown.map((b) => `<div class="cl-row"><span class="t">${esc(b.text) || "…"}</span></div>`).join("")}</div>${branches.length > 6 ? `<div class="more">+ ${branches.length - 6} more</div>` : ""}`
+        : `<div class="card-text" style="opacity:.6">Empty brainstorm</div>`;
     } else {
       const txt = stripHtml(n.content);
       body = txt ? `<div class="card-text">${esc(txt)}</div>` : `<div class="card-text" style="opacity:.55">Empty note</div>`;
@@ -2671,7 +2718,7 @@
     const check = selecting ? `<span class="card-check">${selectedIds.has(n.id) ? "✓" : ""}</span>` : "";
     const star = selecting ? "" : `<span class="card-star ${n.pinned ? "on" : ""}" data-pin="${n.id}" title="Pin">★</span>`;
     return `<div class="card-top">${grip}${check}<span class="card-title">${esc(n.title) || "Untitled"}</span>${star}</div>
-      <div class="card-time">${isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? ` · 🔥${noteStreakCount(n)}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
+      <div class="card-time">${isBsMap ? "🕸️ " : isChk ? "✓ " : "✎ "}${timeAgo(n.updated)}${n.repeat && n.repeat !== "none" ? ` · 🔁 ${n.repeat}` : ""}${n.repeat && n.repeat !== "none" && noteStreakCount(n) > 0 ? ` · 🔥${noteStreakCount(n)}` : ""}${n.remindAt && !n.remindDone ? " · ⏰" : ""}</div>
       ${cphoto}${body}${tags}`;
   }
 
@@ -2842,7 +2889,13 @@
     const doPin = () => { patch(n.id, { pinned: !n.pinned }); renderEditor(); renderList(); };
     $("#pinBtn").onclick = doPin; if ($("#pinBtnM")) $("#pinBtnM").onclick = doPin;
     const title = $("#edTitle");
-    title.addEventListener("input", () => { patch(n.id, { title: title.value }); flashSaving(); updateCard(n.id, ".card-title", title.value || "Untitled"); });
+    title.addEventListener("input", () => {
+      patch(n.id, { title: title.value }); flashSaving(); updateCard(n.id, ".card-title", title.value || "Untitled");
+      if (n.kind === "brainstorm" && n.bsView !== "list") {
+        const rootEl = $(".bs-node-root");
+        if (rootEl) rootEl.textContent = title.value || "Untitled";
+      }
+    });
     $("#edFolder").addEventListener("change", (e) => { patch(n.id, { folder: e.target.value.trim() || null }); renderNav(); renderList(); });
     ed.querySelectorAll("[data-color]").forEach((el) => el.addEventListener("click", () => { patch(n.id, { color: el.dataset.color || null }); renderEditor(); renderList(); }));
     ed.querySelectorAll("[data-untag]").forEach((el) => el.addEventListener("click", () => { patch(n.id, { tags: (n.tags || []).filter((t) => t !== el.dataset.untag) }); renderEditor(); renderList(); renderNav(); }));
@@ -2866,7 +2919,9 @@
       };
       $("#remindClear").onclick = () => { n.remindAt = null; n.remindDone = false; touch(n); saveSoon(); rem.value = ""; scheduleReminders(); refreshCard(n.id); };
     }
-    if (n.kind === "checklist") renderChecklist(n); else renderNoteBody(n);
+    if (n.kind === "checklist") renderChecklist(n);
+    else if (n.kind === "brainstorm") renderBrainstorm(n);
+    else renderNoteBody(n);
   }
 
   // ---- photos (stored on the note as resized JPEG data URIs, on-device) ----
@@ -3425,6 +3480,7 @@
         <button class="link" id="focusBtn" style="margin:0">🎯 Focus</button>
         <button class="link" id="saveTplBtn" style="margin:0">⤓ Save as routine</button>
         ${done > 0 ? `<button class="link" id="resetChkBtn" style="margin:0">↺ Reset</button>` : ""}
+        ${n.kind === "brainstorm" ? `<button class="link" id="bsMapBtn" style="margin:0">🕸️ View as map</button>` : ""}
         ${scheduleFieldsHTML("ckSched", n.repeat, scheduleOf(n))}
       </div>
       ${items.length ? `<div class="progress-wrap"><div class="progress ${allDone ? "done" : ""}"><span style="width:${(done / items.length) * 100}%"></span></div><span class="progress-num">${allDone ? "All gathered! 🌰" : done + "/" + items.length}</span></div>` : ""}
@@ -3556,8 +3612,213 @@
       (n.items || []).forEach((it) => { it.checked = false; (it.sub || []).forEach((s) => (s.checked = false)); });
       touch(n); saveSoon(); renderChecklist(n); refreshCard(n.id);
     };
+    const mb = $("#bsMapBtn");
+    if (mb) mb.onclick = () => { n.bsView = "map"; touch(n); saveSoon(); renderBrainstorm(n); refreshCard(n.id); };
   }
   function updateMini(id) { refreshCard(id); }
+
+  // ---- brainstorm map ----
+  // bsNodes: [{ id, text, parentId }] -- branches only; the root idea is
+  // n.title itself. Depth is capped at 2 (branch, then one level of
+  // sub-branch) so the tree maps losslessly onto the checklist's own
+  // item/sub-item structure when converted with "Make list".
+  let bsEditingId = null; // node currently showing as an editable input
+  let bsPanX = 0, bsPanY = 0; // transient pan offset, not persisted
+
+  function bsLayout(n) {
+    const nodes = n.bsNodes || [];
+    const top = nodes.filter((b) => !b.parentId);
+    const pos = {};
+    const R1 = 130, R2 = 92;
+    // Fan branches upward/outward from the root, growing the arc as more
+    // branches arrive (capped at 280°) rather than spacing them evenly
+    // around a full circle -- an even 2-around-a-circle split lands both
+    // branches directly above/below the root at the same x, which draws
+    // every connecting line on top of the last one.
+    const arc = (Math.min(280, 40 + 60 * Math.max(top.length - 1, 0)) * Math.PI) / 180;
+    const half = arc / 2;
+    top.forEach((b, i) => {
+      const t = top.length <= 1 ? 0.5 : i / (top.length - 1);
+      const angle = -Math.PI / 2 - half + arc * t;
+      pos[b.id] = { x: Math.cos(angle) * R1, y: Math.sin(angle) * R1, angle };
+    });
+    top.forEach((b) => {
+      const kids = nodes.filter((k) => k.parentId === b.id);
+      kids.forEach((k, j) => {
+        const spread = kids.length > 1 ? (j / (kids.length - 1) - 0.5) * 0.9 : 0;
+        const angle = pos[b.id].angle + spread;
+        pos[k.id] = { x: pos[b.id].x + Math.cos(angle) * R2, y: pos[b.id].y + Math.sin(angle) * R2, angle };
+      });
+    });
+    return pos;
+  }
+
+  function bsLinePath(a, b) {
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 + (b.x - a.x) * 0.12;
+    return `<path class="bs-line" d="M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}" />`;
+  }
+
+  function bsNodeHTML(node, p, isRoot) {
+    const editing = !isRoot && bsEditingId === node.id;
+    const cls = isRoot ? "bs-node bs-node-root" : "bs-node bs-node-branch";
+    const inner = editing
+      ? `<input data-bsedit="${node.id}" value="${esc(node.text)}" placeholder="Type an idea…" />`
+      : isRoot ? (esc(node.text) || "Untitled") : (esc(node.text) || `<span style="opacity:.45">…</span>`);
+    const del = isRoot ? "" : `<span class="bs-del" data-bsdel="${node.id}" title="Remove">✕</span>`;
+    return `<div class="${cls}" style="left:calc(50% + ${p.x}px); top:calc(50% + ${p.y}px)" ${isRoot ? "" : `data-bsnode="${node.id}"`}>${inner}${del}</div>`;
+  }
+
+  function bsAddBtnHTML(parentId, p, angle, dist) {
+    const x = p.x + Math.cos(angle) * dist, y = p.y + Math.sin(angle) * dist;
+    return `<div class="bs-node bs-add" data-bsadd="${parentId}" style="left:calc(50% + ${x}px); top:calc(50% + ${y}px)" title="Add a branch">+</div>`;
+  }
+
+  function positionBrainstormLayers() {
+    const svg = $("#bsLines"), layer = $("#bsNodesLayer");
+    const t = `translate(${bsPanX}px, ${bsPanY}px)`;
+    if (svg) svg.style.transform = t;
+    if (layer) layer.style.transform = t;
+  }
+
+  function drawBrainstormCanvas(n) {
+    const canvas = $("#bsCanvas"), svg = $("#bsLines"), layer = $("#bsNodesLayer");
+    if (!canvas || !svg || !layer) return;
+    const w = canvas.clientWidth || 340, h = canvas.clientHeight || 320;
+    svg.setAttribute("viewBox", `${-w / 2} ${-h / 2} ${w} ${h}`);
+    const nodes = n.bsNodes || [];
+    const top = nodes.filter((b) => !b.parentId);
+    const pos = bsLayout(n);
+
+    let lines = "";
+    top.forEach((b) => { lines += bsLinePath({ x: 0, y: 0 }, pos[b.id]); });
+    nodes.forEach((b) => { if (b.parentId && pos[b.parentId] && pos[b.id]) lines += bsLinePath(pos[b.parentId], pos[b.id]); });
+    svg.innerHTML = lines;
+
+    let html = bsNodeHTML({ id: "root", text: n.title }, { x: 0, y: 0 }, true);
+    html += bsAddBtnHTML("root", { x: 0, y: 0 }, -Math.PI / 2, 66);
+    top.forEach((b) => {
+      html += bsNodeHTML(b, pos[b.id], false);
+      html += bsAddBtnHTML(b.id, pos[b.id], pos[b.id].angle, 50);
+      nodes.filter((k) => k.parentId === b.id).forEach((k) => { html += bsNodeHTML(k, pos[k.id], false); });
+    });
+    if (!top.length) html += `<div class="bs-empty">Add your first idea — tap the ⊕ below the topic.</div>`;
+    layer.innerHTML = html;
+    positionBrainstormLayers();
+    wireBrainstormNodes(n);
+  }
+
+  function wireBrainstormNodes(n) {
+    const layer = $("#bsNodesLayer"); if (!layer) return;
+    layer.querySelectorAll("[data-bsadd]").forEach((el) => el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const parentId = el.dataset.bsadd === "root" ? null : el.dataset.bsadd;
+      const node = { id: uid(), text: "", parentId };
+      n.bsNodes = [...(n.bsNodes || []), node];
+      bsEditingId = node.id;
+      touch(n); saveSoon();
+      renderBrainstormMap(n);
+    }));
+    layer.querySelectorAll("[data-bsdel]").forEach((el) => el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const id = el.dataset.bsdel;
+      n.bsNodes = (n.bsNodes || []).filter((b) => b.id !== id && b.parentId !== id);
+      touch(n); saveSoon();
+      renderBrainstormMap(n);
+    }));
+    layer.querySelectorAll("[data-bsnode]").forEach((el) => el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-bsdel]")) return;
+      const id = el.dataset.bsnode;
+      if (bsEditingId === id) return;
+      bsEditingId = id;
+      drawBrainstormCanvas(n);
+    }));
+    const input = layer.querySelector("[data-bsedit]");
+    if (input) {
+      input.focus(); input.select();
+      let done = false;
+      const finish = (save) => {
+        if (done) return; done = true;
+        const node = (n.bsNodes || []).find((b) => b.id === input.dataset.bsedit);
+        if (node) {
+          const val = input.value.trim();
+          if (save && val) node.text = val;
+          else if (!node.text) n.bsNodes = n.bsNodes.filter((b) => b.id !== node.id);
+        }
+        bsEditingId = null;
+        touch(n); saveSoon();
+        renderBrainstormMap(n);
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); finish(true); }
+        if (e.key === "Escape") { e.preventDefault(); finish(false); }
+      });
+      input.addEventListener("blur", () => finish(true));
+    }
+  }
+
+  function renderBrainstormMap(n) {
+    bsPanX = 0; bsPanY = 0;
+    const top = (n.bsNodes || []).filter((b) => !b.parentId);
+    $("#body").innerHTML = `
+      <div class="bs-toolbar">
+        <span class="bs-hint">Tap ⊕ to branch off an idea</span>
+        ${top.length ? `<button class="link" id="bsListBtn" style="margin:0">✓ Make list</button>` : ""}
+      </div>
+      <div class="bs-canvas" id="bsCanvas">
+        <svg id="bsLines"></svg>
+        <div class="bs-layer" id="bsNodesLayer"></div>
+      </div>`;
+    drawBrainstormCanvas(n);
+    const lb = $("#bsListBtn"); if (lb) lb.onclick = () => convertBrainstormToList(n);
+    const canvas = $("#bsCanvas");
+    let dragging = false, lastX = 0, lastY = 0;
+    canvas.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".bs-node")) return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      canvas.classList.add("grabbing");
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      bsPanX += e.clientX - lastX; bsPanY += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      positionBrainstormLayers();
+    });
+    const stopDrag = () => { dragging = false; canvas.classList.remove("grabbing"); };
+    canvas.addEventListener("pointerup", stopDrag);
+    canvas.addEventListener("pointercancel", stopDrag);
+  }
+
+  function renderBrainstorm(n) {
+    if (n.bsView === "list") renderChecklist(n);
+    else renderBrainstormMap(n);
+  }
+
+  // Converts the branch tree into a real checklist, reusing renderChecklist
+  // wholesale. IDs are shared between a bsNode and its resulting item/sub,
+  // so re-running this after adding new branches merges in the new ones
+  // without disturbing already-checked items.
+  function convertBrainstormToList(n) {
+    const branches = (n.bsNodes || []).filter((b) => !b.parentId);
+    if (!branches.length) return;
+    const kidsOf = (id) => (n.bsNodes || []).filter((b) => b.parentId === id);
+    n.items = n.items || [];
+    branches.forEach((b) => {
+      let item = n.items.find((it) => it.id === b.id);
+      if (!item) { item = { id: b.id, text: b.text, checked: false, sub: [] }; n.items.push(item); }
+      else item.text = b.text;
+      item.sub = item.sub || [];
+      kidsOf(b.id).forEach((sb) => {
+        let sub = item.sub.find((s) => s.id === sb.id);
+        if (!sub) item.sub.push({ id: sb.id, text: sb.text, checked: false });
+        else sub.text = sb.text;
+      });
+    });
+    n.bsView = "list";
+    touch(n); saveSoon();
+    renderBrainstorm(n);
+    refreshCard(n.id);
+  }
 
   // ---- confetti ----
   function celebrate() {
@@ -3832,7 +4093,7 @@
     } catch (e) { alert("Couldn't read that file — is it a SquirrelNote export?"); } };
     rd.readAsText(file);
   }
-  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : "note", title: n.title || "Untitled", content: sanitizeRichHTML(n.content || ""), items: Array.isArray(n.items) ? n.items : [], tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none",
+  function normalize(n) { return { id: n.id || uid(), kind: n.kind === "checklist" ? "checklist" : n.kind === "brainstorm" ? "brainstorm" : "note", title: n.title || "Untitled", content: sanitizeRichHTML(n.content || ""), items: Array.isArray(n.items) ? n.items : [], bsNodes: Array.isArray(n.bsNodes) ? n.bsNodes : [], bsView: n.bsView === "list" ? "list" : "map", tags: Array.isArray(n.tags) ? n.tags : [], folder: n.folder || null, color: n.color || null, photos: Array.isArray(n.photos) ? n.photos : [], remindAt: n.remindAt || null, remindDone: !!n.remindDone, deleted: n.deleted || null, repeat: n.repeat || "none",
     resetTime: /^\d{2}:\d{2}$/.test(n.resetTime) ? n.resetTime : undefined,
     resetDow: Number.isInteger(n.resetDow) && n.resetDow >= 0 && n.resetDow <= 6 ? n.resetDow : undefined,
     resetDom: Number.isInteger(n.resetDom) && n.resetDom >= 1 && n.resetDom <= 31 ? n.resetDom : undefined,
@@ -3959,6 +4220,7 @@
   });
   $("#newNote").onclick = () => newNote("note");
   $("#newList").onclick = () => newNote("checklist");
+  $("#newBrainstorm").onclick = () => newBrainstorm();
   $("#winsBtn").onclick = openWins;
   $("#rndBtn").onclick = openRandomizer;
   $("#openSettings").onclick = openSettings;

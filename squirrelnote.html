@@ -105,7 +105,15 @@
 
   /* ---------- Shell -------------------------------------------------------- */
   html, body { overflow-x: hidden; max-width: 100%; }
-  #app { display: grid; grid-template-columns: 1fr; grid-template-rows: 100vh; height: 100vh; overflow: hidden; position: relative; }
+  /* 100vh is the browser's max-possible viewport height on some older
+     Android WebViews (as if the address bar / on-screen nav bar were
+     always hidden), not the actually-visible one -- on devices where that
+     gap goes unaccounted for elsewhere, it stretches #app taller than the
+     real screen, leaving a blank gap between the scrollable content and
+     the fixed tab bar sitting at the true bottom. 100dvh tracks the real,
+     live viewport instead; browsers without it just ignore the line and
+     keep the 100vh above. */
+  #app { display: grid; grid-template-columns: 1fr; grid-template-rows: 100vh; grid-template-rows: 100dvh; height: 100vh; height: 100dvh; overflow: hidden; position: relative; }
 
   /* ---------- Sidebar (dark, tactile) ------------------------------------- */
   #rail {
@@ -854,7 +862,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.37-nav-bar-overlay-fix";
+  const APP_BUILD = "2026-08-13.38-dvh-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [

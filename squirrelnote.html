@@ -51,6 +51,7 @@
     --mono: ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace;
     --body-font: var(--sans);
     color-scheme: light;
+    --nav-overlay: 0px;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -424,7 +425,7 @@
   .kbd { font-family: var(--mono); font-size: 0.7rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 0.05rem 0.35rem; color: var(--muted); }
 
   /* floating quick-capture button */
-  #fab { position: fixed; right: 1.1rem; bottom: calc(4.6rem + env(safe-area-inset-bottom)); z-index: 35; width: 60px; height: 60px; border-radius: 22px;
+  #fab { position: fixed; right: 1.1rem; bottom: calc(4.6rem + max(env(safe-area-inset-bottom), var(--nav-overlay))); z-index: 35; width: 60px; height: 60px; border-radius: 22px;
     background: linear-gradient(140deg, var(--accent), var(--accent-2)); color: var(--accent-contrast);
     font-size: 1.85rem; line-height: 1; box-shadow: 0 14px 30px -8px var(--accent), var(--shadow-sm);
     display: grid; place-items: center; transition: transform 0.18s var(--ease-spring), box-shadow 0.18s; }
@@ -456,7 +457,7 @@
   .lvl-bar > span { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width 0.5s var(--ease-spring); }
 
   /* level-up toast */
-  .toast { position: fixed; left: 50%; bottom: calc(9rem + env(safe-area-inset-bottom)); transform: translateX(-50%) translateY(22px); z-index: 70;
+  .toast { position: fixed; left: 50%; bottom: calc(9rem + max(env(safe-area-inset-bottom), var(--nav-overlay))); transform: translateX(-50%) translateY(22px); z-index: 70;
     background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--accent-contrast);
     font-family: var(--round); font-weight: 800; font-size: 0.95rem; padding: 0.6rem 1.15rem; border-radius: 14px;
     box-shadow: var(--shadow-lg); opacity: 0; transition: opacity 0.3s, transform 0.3s var(--ease-spring); pointer-events: none; }
@@ -558,7 +559,7 @@
   .card.picked .card-check { background: var(--accent); border-color: var(--accent); color: #fff; }
   .card.picked { outline: 2.5px solid var(--accent); outline-offset: 1px; }
   #bulkBar:empty { display: none; }
-  .bulkbar { position: fixed; left: 0.8rem; right: 0.8rem; bottom: calc(4.6rem + env(safe-area-inset-bottom)); z-index: 36; background: var(--rail-bg); color: var(--rail-fg);
+  .bulkbar { position: fixed; left: 0.8rem; right: 0.8rem; bottom: calc(4.6rem + max(env(safe-area-inset-bottom), var(--nav-overlay))); z-index: 36; background: var(--rail-bg); color: var(--rail-fg);
     border-radius: 16px; padding: 0.55rem 0.7rem; display: flex; align-items: center; gap: 0.4rem; box-shadow: var(--shadow-lg); animation: pop 0.22s var(--ease-spring); }
   .bulkbar .bk-count { font-family: var(--round); font-weight: 700; font-size: 0.85rem; padding-right: 0.3rem; white-space: nowrap; }
   .bulkbar button { color: var(--rail-fg); background: rgba(255,255,255,0.08); border-radius: 10px; padding: 0.42rem 0.6rem; font-size: 0.8rem; font-weight: 600; white-space: nowrap; }
@@ -586,7 +587,7 @@
   /* ---------- Bottom tab bar (Notes / Pet) ---------------------------------- */
   #tabBar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 37; display: flex;
     background: var(--surface); border-top: 1px solid var(--border);
-    padding: 0.3rem 0.6rem calc(0.3rem + env(safe-area-inset-bottom)); box-shadow: 0 -8px 22px -14px rgba(0,0,0,0.3); }
+    padding: 0.3rem 0.6rem calc(0.3rem + max(env(safe-area-inset-bottom), var(--nav-overlay))); box-shadow: 0 -8px 22px -14px rgba(0,0,0,0.3); }
   .tab-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.15rem; padding: 0.22rem 0.4rem;
     border-radius: 12px; color: var(--muted); transition: color 0.14s, background 0.14s, transform 0.12s var(--ease-spring); position: relative; }
   .tab-btn .tab-ic { font-size: 1.3rem; line-height: 1; }
@@ -853,7 +854,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.36-brainstorm-zoom-depth";
+  const APP_BUILD = "2026-08-13.37-nav-bar-overlay-fix";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2344,6 +2345,28 @@
     $("#sort").value = prefs.sort;
   }
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (prefs.theme === "system") applyPrefs(); });
+
+  // Some Android browsers (older Chrome/WebView builds, Samsung Internet, and
+  // similar) draw the phone's own on-screen back/home/recents bar as an
+  // overlay on top of the page instead of resizing the visible viewport --
+  // and don't report that overlap through env(safe-area-inset-bottom) the
+  // way iOS reliably does, so our bottom-anchored UI (tab bar, FAB) can end
+  // up hidden underneath those buttons with no CSS-only way to detect it.
+  // window.visualViewport, when present, tracks the space actually free of
+  // both the keyboard AND that kind of overlay, so the gap between it and
+  // the full layout viewport is a reasonable stand-in for what env() isn't
+  // giving us. A big gap almost always means the on-screen keyboard is open
+  // instead (which the padding below has nothing to do with), so this only
+  // acts on gaps in the size range a nav bar actually is.
+  function syncNavOverlay() {
+    if (!window.visualViewport) return;
+    const gap = window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop;
+    const overlay = gap > 4 && gap < 80 ? Math.round(gap) : 0;
+    document.documentElement.style.setProperty("--nav-overlay", overlay + "px");
+  }
+  syncNavOverlay();
+  window.addEventListener("resize", syncNavOverlay);
+  if (window.visualViewport) window.visualViewport.addEventListener("resize", syncNavOverlay);
 
   function selected() { return notes.find((n) => n.id === selectedId) || null; }
   function activeNotes() { return notes.filter((n) => !n.deleted); }

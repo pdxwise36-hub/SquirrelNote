@@ -560,7 +560,7 @@
 
   /* brain dump — a freeform scratch space */
   .bd-pane { position: fixed; inset: 0; z-index: 45; background: var(--app-bg); display: flex; flex-direction: column; animation: fade 0.18s ease; }
-  .bd-head { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .bd-head { display: flex; align-items: center; gap: 0.5rem; padding: calc(0.6rem + var(--safe-top, env(safe-area-inset-top))) 0.7rem 0.6rem; border-bottom: 1px solid var(--border); background: var(--surface); }
   .bd-title { font-family: var(--round); font-weight: 800; font-size: 1.05rem; display: flex; align-items: center; gap: 0.4rem; flex: 1; }
   .bd-save { font-size: 0.7rem; color: var(--muted); min-width: 3.5rem; text-align: right; }
   .bd-area { flex: 1; width: 100%; border: none; background: var(--app-bg); color: var(--fg); padding: 1rem 1.1rem; font-family: var(--body-font); font-size: 1.02rem; line-height: 1.7; resize: none; }
@@ -619,7 +619,7 @@
      screen) ----------------------------------------------------------------- */
   #petPage { display: none; position: fixed; inset: 0; flex-direction: column; background: #131217; }
   .pet-scene { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.45rem;
-    padding: 0 1.2rem calc(4.6rem + var(--bottom-inset)); overflow-y: auto; position: relative; background: #131217; }
+    padding: var(--safe-top, env(safe-area-inset-top)) 1.2rem calc(4.6rem + var(--bottom-inset)); overflow-y: auto; position: relative; background: #131217; }
   .pet-hero { position: relative; width: 100%; margin: 0 -1.2rem; }
   .pet-photo { display: block; width: 100%; height: auto; }
   .pet-scene[data-mood="awake"] .pet-photo, .pet-scene[data-mood="new"] .pet-photo { animation: petBob 3.2s ease-in-out infinite; }
@@ -671,7 +671,7 @@
 
   /* ---------- Calendar page: month grid of notes/reminders/routines ------- */
   #calendarPage { display: none; position: fixed; inset: 0; flex-direction: column; background: var(--app-bg); color: var(--fg); }
-  .cal-scroll { flex: 1; overflow-y: auto; padding: 0.8rem 0.8rem calc(4.6rem + var(--bottom-inset)); touch-action: pan-y; overscroll-behavior-y: contain; }
+  .cal-scroll { flex: 1; overflow-y: auto; padding: calc(0.8rem + var(--safe-top, env(safe-area-inset-top))) 0.8rem calc(4.6rem + var(--bottom-inset)); touch-action: pan-y; overscroll-behavior-y: contain; }
   .cal-header { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.7rem; }
   .cal-month { font-family: var(--serif); font-weight: 700; font-size: 1.15rem; }
   .cal-nav { display: flex; align-items: center; gap: 0.3rem; }
@@ -743,7 +743,7 @@
      plus anything overdue) and adds inline checkbox tapping so acting on
      something never requires leaving this page. */
   #todayPage { display: none; position: fixed; inset: 0; flex-direction: column; background: var(--app-bg); color: var(--fg); }
-  .today-scroll { flex: 1; overflow-y: auto; padding: 0.8rem 0.8rem calc(4.6rem + var(--bottom-inset)); }
+  .today-scroll { flex: 1; overflow-y: auto; padding: calc(0.8rem + var(--safe-top, env(safe-area-inset-top))) 0.8rem calc(4.6rem + var(--bottom-inset)); }
   .today-header { margin-bottom: 0.8rem; }
   .today-title { font-family: var(--serif); font-weight: 700; font-size: 1.25rem; }
   .today-empty { color: var(--muted); font-size: 0.9rem; text-align: center; padding: 3rem 1rem; line-height: 1.6; }
@@ -869,7 +869,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.45-real-safe-area-bottom-relay";
+  const APP_BUILD = "2026-08-13.46-safe-top-other-fullscreen-pages";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [

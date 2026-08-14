@@ -495,6 +495,14 @@
   .rnd-result.land { animation: rland 0.55s var(--ease-spring); color: var(--accent); text-shadow: 0 0 26px var(--accent-soft); }
   @keyframes rland { 0% { transform: scale(0.4); opacity: 0; } 55% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
+  /* "what should I do?" task picker */
+  .tp-section { display: flex; flex-direction: column; gap: 0.4rem; }
+  .tp-label { font-size: 0.82rem; font-weight: 700; color: var(--muted); text-align: center; }
+  .tp-result { background: radial-gradient(circle at 50% 30%, var(--accent-soft), var(--surface-2)); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 1.1rem 1rem; display: flex; flex-direction: column; gap: 0.3rem; }
+  .tp-result-sub { font-size: 0.78rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.02em; }
+  .tp-result-title { font-family: var(--round); font-weight: 800; font-size: 1.3rem; line-height: 1.3; color: var(--fg); word-break: break-word; }
+
   /* photos on notes */
   .photos { display: flex; flex-wrap: wrap; gap: 0.5rem; position: relative; }
   .photo { position: relative; width: 88px; height: 88px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
@@ -807,6 +815,7 @@
     <div class="stats" id="stats"></div>
     <nav id="nav" class="scroll"></nav>
     <div class="railfoot">
+      <button class="nav-item" id="taskPickerBtn">🧭 What should I do?</button>
       <button class="nav-item" id="rndBtn">🎲 Pick for me</button>
       <button class="nav-item" id="winsBtn">🏆 Weekly wins</button>
       <button class="nav-item" id="exportBtn">⇩ Export backup</button>
@@ -874,7 +883,7 @@
   // to tell whether a device is actually running the latest version or
   // stuck on something cached (browser cache, CDN lag, a stale home-screen
   // install), instead of guessing from symptoms alone.
-  const APP_BUILD = "2026-08-13.48-per-species-pet-names";
+  const APP_BUILD = "2026-08-13.49-what-should-i-do";
   const NOTES_KEY = "squirrelnote.notes.v1";
   const PREFS_KEY = "squirrelnote.prefs.v1";
   const ACCENTS = [
@@ -2178,6 +2187,112 @@
     if (prefs.lastWins === wk) return;
     prefs.lastWins = wk; savePrefs();
     if (Object.values(stats.days || {}).some((v) => v > 0)) setTimeout(openWins, 700);
+  }
+
+  // ---- "What should I do?" -- picks ONE to-do instead of showing a list,
+  // filtered by how much time and energy is actually available right now.
+  // Deliberately scoped to checklist items (the app's clearest unit of "a
+  // thing to do") rather than trying to guess whether a plain note is
+  // actionable. No new fields to fill in -- it estimates size from what's
+  // already there: how many items are left, and whether it's a routine
+  // (habitual, so lower activation energy than something unfamiliar).
+  function taskCandidates() {
+    return notes
+      .filter((n) => n.kind === "checklist" && !n.deleted && (n.items || []).some((it) => !itemDone(it)))
+      .map((n) => ({ note: n, remaining: n.items.filter((it) => !itemDone(it)).length, isRoutine: !!n.repeat && n.repeat !== "none" }));
+  }
+  function pickTaskFor(minutes, energy) {
+    const pool = taskCandidates();
+    if (!pool.length) return null;
+    let byEnergy = pool;
+    if (energy === "low") { const easier = pool.filter((c) => c.isRoutine || c.remaining <= 3); if (easier.length) byEnergy = easier; }
+    else if (energy === "good") { const bigger = pool.filter((c) => !c.isRoutine || c.remaining > 3); if (bigger.length) byEnergy = bigger; }
+    const sizeMax = { 5: 3, 15: 6, 30: 12 }[minutes] ?? Infinity;
+    const sizeMin = minutes === 60 ? 6 : 0;
+    let byTime = byEnergy.filter((c) => c.remaining <= sizeMax && c.remaining >= sizeMin);
+    if (!byTime.length) byTime = byEnergy;
+    return byTime[Math.floor(Math.random() * byTime.length)].note;
+  }
+  function openTaskPicker() {
+    const root = $("#modalRoot");
+    let time = null, energy = null;
+    function drawQuestions() {
+      root.innerHTML = `<div class="scrim" id="tpScrim"></div>
+        <div class="qc" style="max-width:420px">
+          <h2 style="justify-content:center">🧭 What should I do?</h2>
+          <p class="fineprint" style="margin:0;text-align:center">Two quick questions — then one thing, not a list.</p>
+          <div class="tp-section">
+            <div class="tp-label">How much time do you have?</div>
+            <div class="rnd-presets" id="tpTime">
+              <button class="rnd-chip" data-time="5">5 min</button>
+              <button class="rnd-chip" data-time="15">15 min</button>
+              <button class="rnd-chip" data-time="30">30 min</button>
+              <button class="rnd-chip" data-time="60">1+ hour</button>
+            </div>
+          </div>
+          <div class="tp-section">
+            <div class="tp-label">How's your energy?</div>
+            <div class="rnd-presets" id="tpEnergy">
+              <button class="rnd-chip" data-energy="low">🪫 Low</button>
+              <button class="rnd-chip" data-energy="okay">🙂 Okay</button>
+              <button class="rnd-chip" data-energy="good">⚡ Good</button>
+            </div>
+          </div>
+          <div class="qc-row">
+            <span style="flex:1"></span>
+            <button class="btn-sm" id="tpCancel">Close</button>
+            <button class="btn-sm accent" id="tpGo" disabled>Find me something</button>
+          </div>
+        </div>`;
+      $("#tpScrim").onclick = closeSettings;
+      $("#tpCancel").onclick = closeSettings;
+      const go = $("#tpGo");
+      root.querySelectorAll("#tpTime [data-time]").forEach((el) => el.addEventListener("click", () => {
+        time = Number(el.dataset.time);
+        root.querySelectorAll("#tpTime .rnd-chip").forEach((c) => c.classList.toggle("on", c === el));
+        go.disabled = !(time && energy);
+      }));
+      root.querySelectorAll("#tpEnergy [data-energy]").forEach((el) => el.addEventListener("click", () => {
+        energy = el.dataset.energy;
+        root.querySelectorAll("#tpEnergy .rnd-chip").forEach((c) => c.classList.toggle("on", c === el));
+        go.disabled = !(time && energy);
+      }));
+      go.onclick = () => drawResult();
+    }
+    function drawResult() {
+      const note = pickTaskFor(time, energy);
+      if (!note) {
+        root.innerHTML = `<div class="scrim" id="tpScrim"></div>
+          <div class="qc" style="text-align:center;max-width:420px">
+            <h2 style="justify-content:center">🎉 All caught up!</h2>
+            <p class="fineprint" style="margin:0">No unfinished to-do lists right now — add one, or just enjoy the clear plate.</p>
+            <button class="btn-sm accent" id="tpClose" style="align-self:center;margin-top:.3rem">Nice!</button>
+          </div>`;
+        $("#tpScrim").onclick = closeSettings;
+        $("#tpClose").onclick = closeSettings;
+        return;
+      }
+      const firstTodo = note.items.find((it) => !itemDone(it));
+      root.innerHTML = `<div class="scrim" id="tpScrim"></div>
+        <div class="qc" style="text-align:center;max-width:420px">
+          <h2 style="justify-content:center">🌰 Try this</h2>
+          <div class="tp-result">
+            <div class="tp-result-sub">${esc(note.title) || "Untitled"}</div>
+            <div class="tp-result-title">${esc(firstTodo.text) || "…"}</div>
+          </div>
+          <div class="qc-row">
+            <button class="btn-sm" id="tpAgain">🎲 Something else</button>
+            <span style="flex:1"></span>
+            <button class="btn-sm" id="tpNotNow">Not now</button>
+            <button class="btn-sm accent" id="tpStart">▶ Start</button>
+          </div>
+        </div>`;
+      $("#tpScrim").onclick = closeSettings;
+      $("#tpNotNow").onclick = closeSettings;
+      $("#tpAgain").onclick = () => drawResult();
+      $("#tpStart").onclick = () => openFocus(note);
+    }
+    drawQuestions();
   }
 
   // ---- "Pick for me" randomizer (executive-function helper) ----
@@ -4457,6 +4572,7 @@
   $("#newBrainstorm").onclick = () => newBrainstorm();
   $("#winsBtn").onclick = openWins;
   $("#rndBtn").onclick = openRandomizer;
+  $("#taskPickerBtn").onclick = openTaskPicker;
   $("#openSettings").onclick = openSettings;
   // The home-screen "Quick note" shortcut opens the site with ?capture=1; the
   // loader relays that here so we pop the capture box straight open.
